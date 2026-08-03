@@ -19,7 +19,7 @@
   "author": "hiddenest",
   "type": "module",
   "bin": {
-    "ocx-cursor": "./bin/ocx-cursor.mjs"
+    "ocx-cursor": "bin/ocx-cursor.mjs"
   },
   "files": [
     "bin",
