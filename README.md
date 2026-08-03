@@ -136,6 +136,25 @@ This package does not create, modify, or remove the Cloudflare Tunnel.
 Quit Cursor completely, confirm that OpenCodex is running, then initialize the bridge:
 
 ```bash
+npx ocx-cursor init
+```
+
+Enter the Cloudflare Tunnel hostname when prompted. The `https://` prefix and `/v1` suffix are optional:
+
+```text
+Cloudflare Tunnel URL (for example, https://cursor-api.example.com): https://cursor-api.example.com
+```
+
+The installer starts the local bridge and tests two routes through Cloudflare before it changes Cursor:
+
+- `GET /healthz` confirms that the hostname reaches this bridge.
+- Authenticated `GET /v1/models` confirms that request headers reach the bridge and OpenCodex responds.
+
+If either check fails, `init` stops before writing Cursor's API settings. The local bridge stays running so you can fix the tunnel and rerun the command.
+
+For scripts and unattended setup, pass the URL directly:
+
+```bash
 npx ocx-cursor init \
   --base-url https://cursor-api.example.com/v1
 ```
@@ -143,10 +162,11 @@ npx ocx-cursor init \
 `init` performs these actions:
 
 1. Generates a gateway API key in `~/.opencodex/cursor-bridge/secret`.
-2. Stores the key in Cursor with macOS Safe Storage encryption.
-3. Registers the HTTPS URL as Cursor's OpenAI base URL.
-4. Installs the `com.opencodex.cursor-bridge` LaunchAgent.
-5. Adds active OpenCodex models to Cursor under `opencodex/*`.
+2. Installs the `com.opencodex.cursor-bridge` LaunchAgent.
+3. Tests the Cloudflare Tunnel and OpenCodex model endpoint.
+4. Stores the key in Cursor with macOS Safe Storage encryption.
+5. Registers the HTTPS URL as Cursor's OpenAI base URL.
+6. Adds active OpenCodex models to Cursor under `opencodex/*`.
 
 The installer links `ocx-cursor` into `~/.local/bin`. Add that directory to `PATH` if your shell does not include it:
 
@@ -182,7 +202,7 @@ The gateway API key is generated during `init` and stored in Cursor with macOS S
 
 | Command | Purpose |
 | --- | --- |
-| `ocx-cursor init --base-url URL` | Configure Cursor, install the service, and sync models. Cursor must be closed. |
+| `ocx-cursor init [--base-url URL]` | Install the service, prompt for and test the tunnel, configure Cursor, and sync models. Cursor must be closed. |
 | `ocx-cursor install` | Reinstall or restart the LaunchAgent without changing Cursor's API settings. |
 | `ocx-cursor sync` | Refresh the active model catalog. The service queues the update while Cursor runs. |
 | `ocx-cursor status` | Show service health, model count, and pending sync state. |
@@ -207,7 +227,7 @@ Cursor removes custom effort metadata from its database during startup. The Laun
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OCX_CURSOR_BASE_URL` | Stored Cursor URL | HTTPS endpoint used by `init` when `--base-url` is absent. |
+| `OCX_CURSOR_BASE_URL` | Stored Cursor URL | Prompt default, or endpoint for non-interactive `init`, when `--base-url` is absent. |
 | `OCX_CURSOR_HOME` | `~/.opencodex/cursor-bridge` | Service state, API key, catalog, and logs. |
 | `OCX_CURSOR_HOST` | `127.0.0.1` | Local gateway bind address. |
 | `OCX_CURSOR_PORT` | `10101` | Local gateway port. |
@@ -257,11 +277,10 @@ launchctl print "gui/$(id -u)/com.cloudflare.cloudflared"
 
 ### Cursor returns 401
 
-Run `init` again while Cursor is closed. It preserves the bridge key and writes the matching encrypted value back to Cursor:
+Run `init` again while Cursor is closed. It preserves the bridge key, retests the tunnel, and writes the matching encrypted value back to Cursor:
 
 ```bash
-npx ocx-cursor init \
-  --base-url https://cursor-api.example.com/v1
+npx ocx-cursor init
 ```
 
 ### Models or effort options are missing
