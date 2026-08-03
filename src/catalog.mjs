@@ -1,8 +1,15 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
-import { managedPrefix, opencodexConfigFile, opencodexServiceTokenFile } from "./paths.mjs";
+import { dirname, join, resolve } from "node:path";
+import {
+  codexConfigFile,
+  defaultCodexCatalogFile,
+  managedPrefix,
+  opencodexConfigFile,
+  opencodexServiceTokenFile,
+} from "./paths.mjs";
 
 export const allowedEfforts = ["low", "medium", "high", "xhigh", "max"];
 export const effortLabels = {
@@ -44,7 +51,29 @@ export function sanitizeEfforts(sourceId, configured) {
   return allowedEfforts.filter((effort) => values.includes(effort));
 }
 
-export function normalizeActiveCatalog(configured, active) {
+export function configuredCodexCatalogFile(configFile = codexConfigFile) {
+  try {
+    const content = readFileSync(configFile, "utf8");
+    const match = content.match(/^\s*model_catalog_json\s*=\s*("(?:[^"\\]|\\.)*")\s*$/m);
+    if (match) return resolve(dirname(configFile), JSON.parse(match[1]));
+  } catch {}
+  return defaultCodexCatalogFile;
+}
+
+export function priorityModelIds(catalogFile = configuredCodexCatalogFile()) {
+  try {
+    const payload = JSON.parse(readFileSync(catalogFile, "utf8"));
+    return new Set(payload.models
+      .filter((model) => Array.isArray(model?.service_tiers)
+        && model.service_tiers.some((tier) => tier?.id === "priority"))
+      .map((model) => model.slug || model.id)
+      .filter((id) => typeof id === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+export function normalizeActiveCatalog(configured, active, fastModelIds = new Set()) {
   const configuredById = new Map(configured
     .filter((model) => typeof model.provider === "string" && typeof model.model === "string")
     .map((model) => [`${model.provider}/${model.model}`, model]));
@@ -69,6 +98,7 @@ export function normalizeActiveCatalog(configured, active) {
       maxOutputTokens: model.capabilities?.max_output_tokens,
       inputModalities,
       reasoningEfforts: sanitizeEfforts(model.id, configuredModel?.reasoningEfforts ?? model.capabilities?.reasoning_effort),
+      supportsFast: fastModelIds.has(model.id),
     });
   }
 
@@ -113,5 +143,6 @@ export async function buildActiveCatalog(options = {}) {
   return normalizeActiveCatalog(
     configuredModels(options.ocxBin),
     await activeModels(options.fetchImpl),
+    options.fastModelIds || priorityModelIds(options.codexCatalogFile),
   );
 }

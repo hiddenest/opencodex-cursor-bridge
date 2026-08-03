@@ -5,7 +5,7 @@ import process from "node:process";
 import { createInterface } from "node:readline/promises";
 import { configureCursorOpenAI, storedCursorOpenAIBaseUrl } from "../src/cursor-config.mjs";
 import { cursorIsRunning } from "../src/cursor-state.mjs";
-import { installService, prepareInstallSecret, serviceStatus, uninstallService } from "../src/install.mjs";
+import { installService, prepareInstallSecret, serviceStatus, uninstallService, updateService } from "../src/install.mjs";
 import { cursorOpenAIBaseUrl, pendingFile } from "../src/paths.mjs";
 import { runService } from "../src/service.mjs";
 import { normalizeBaseUrl, testTunnel } from "../src/setup.mjs";
@@ -18,6 +18,7 @@ Usage:
                         Install the service, test the tunnel, configure Cursor,
                         and sync models
   ocx-cursor install    Install and start the macOS companion service
+  ocx-cursor update     Install the latest companion release and restart it
   ocx-cursor sync       Sync active OpenCodex models into Cursor
   ocx-cursor status     Show service and model-sync status
   ocx-cursor uninstall  Stop and remove the companion service
@@ -107,6 +108,11 @@ async function main() {
       ? `Configured Cursor OpenAI endpoint: ${baseUrl}\nBackup: ${configured.backupPath}\n`
       : `Cursor OpenAI endpoint is already configured: ${baseUrl}\n`);
     printSync(await syncNow());
+    return;
+  }
+  if (command === "update") {
+    process.stdout.write("Updating OpenCodex Cursor Bridge from npm...\n");
+    updateService();
     return;
   }
   if (command === "sync") {

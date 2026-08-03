@@ -42,26 +42,55 @@ function effortDefinition(model) {
   };
 }
 
-function effortVariants(model) {
+function fastDefinition() {
+  return {
+    id: "fast",
+    name: "Fast",
+    markdownTooltip: "1.5x speed with increased usage.",
+    parameterType: {
+      booleanParameter: {
+        values: [
+          { value: "false" },
+          { value: "true", displayName: "Fast", increasesModelCost: true },
+        ],
+      },
+    },
+    isCycleableByHotkey: false,
+  };
+}
+
+function modelVariants(model) {
   const parameterId = parameterIdFor(model);
   const selectedDefault = defaultEffort(model);
-  return model.reasoningEfforts.map((effort) => {
-    const displayName = `${model.alias} <span style="color: var(--cursor-text-tertiary);">${effortLabels[effort]}</span>`;
-    const isDefault = effort === selectedDefault;
+  const efforts = model.reasoningEfforts.length > 0 ? model.reasoningEfforts : [null];
+  const fastValues = model.supportsFast ? ["false", "true"] : [null];
+  return efforts.flatMap((effort) => fastValues.map((fast) => {
+    const labels = [effort ? effortLabels[effort] : null, fast === "true" ? "Fast" : null].filter(Boolean);
+    const displayName = labels.length > 0
+      ? `${model.alias} <span style="color: var(--cursor-text-tertiary);">${labels.join(" ")}</span>`
+      : model.alias;
+    const isDefault = (effort === null || effort === selectedDefault) && fast !== "true";
+    const parameters = [
+      ...(effort ? [{ id: parameterId, value: effort }] : []),
+      ...(fast ? [{ id: "fast", value: fast }] : []),
+    ];
+    const suffix = [effort, fast === "true" ? "fast" : null].filter(Boolean).join("-");
     return {
-      parameterValues: [{ id: parameterId, value: effort }],
+      parameterValues: parameters,
       displayName,
       displayNameOutsidePicker: displayName,
       isMaxMode: false,
       ...(isDefault ? { isDefaultMaxConfig: true, isDefaultNonMaxConfig: true } : {}),
-      variantStringRepresentation: `${model.alias}[${parameterId}=${effort}]`,
-      legacySlug: `${model.alias}-${effort}`,
+      variantStringRepresentation: `${model.alias}[${parameters.map(({ id, value }) => `${id}=${value}`).join(",")}]`,
+      legacySlug: suffix ? `${model.alias}-${suffix}` : model.alias,
     };
-  });
+  }));
 }
 
 export function cursorModel(model) {
   const hasEffort = model.reasoningEfforts.length > 0;
+  const hasVariants = hasEffort || model.supportsFast;
+  const variants = hasVariants ? modelVariants(model) : [];
   return {
     name: model.alias,
     defaultOn: false,
@@ -80,9 +109,12 @@ export function cursorModel(model) {
     idAliases: [],
     namedModelSectionIndex: 1,
     cloudAgentEffortModes: [],
-    parameterDefinitions: hasEffort ? [effortDefinition(model)] : [],
-    variants: hasEffort ? effortVariants(model) : [],
-    legacySlugs: model.reasoningEfforts.map((effort) => `${model.alias}-${effort}`),
+    parameterDefinitions: [
+      ...(hasEffort ? [effortDefinition(model)] : []),
+      ...(model.supportsFast ? [fastDefinition()] : []),
+    ],
+    variants,
+    legacySlugs: variants.map(({ legacySlug }) => legacySlug),
     modelPickerBadges: [],
   };
 }
@@ -93,15 +125,18 @@ function syncSelectedModel(state, catalog) {
   const byAlias = new Map(catalog.map((model) => [model.alias, model]));
   for (const selected of composer.selectedModels) {
     const model = byAlias.get(selected.modelId);
-    if (!model || model.reasoningEfforts.length === 0) continue;
+    if (!model || (model.reasoningEfforts.length === 0 && !model.supportsFast)) continue;
     const parameterId = parameterIdFor(model);
-    const current = Array.isArray(selected.parameters)
-      ? selected.parameters.find(({ id }) => id === parameterId)?.value
-      : undefined;
-    selected.parameters = [{
-      id: parameterId,
-      value: model.reasoningEfforts.includes(current) ? current : defaultEffort(model),
-    }];
+    const current = Array.isArray(selected.parameters) ? selected.parameters : [];
+    const effort = current.find(({ id }) => id === parameterId)?.value;
+    const fast = current.find(({ id }) => id === "fast")?.value;
+    selected.parameters = [
+      ...(model.reasoningEfforts.length > 0 ? [{
+        id: parameterId,
+        value: model.reasoningEfforts.includes(effort) ? effort : defaultEffort(model),
+      }] : []),
+      ...(model.supportsFast ? [{ id: "fast", value: fast === "true" ? "true" : "false" }] : []),
+    ];
   }
 }
 

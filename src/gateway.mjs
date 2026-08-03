@@ -29,6 +29,13 @@ function suppliedEffort(payload, variantText) {
     || payload.reasoningEffort;
 }
 
+function suppliedFast(variantText) {
+  return variantText
+    ?.split(",")
+    .map((value) => value.split("=", 2))
+    .find(([key]) => key === "fast")?.[1];
+}
+
 export function rewriteModelAliasBody(body, catalog) {
   if (!body?.length) return body;
   let payload;
@@ -42,10 +49,16 @@ export function rewriteModelAliasBody(body, catalog) {
   const variant = /^(opencodex\/.+?)\[([^\]]+)\]$/.exec(payload.model);
   let alias = variant?.[1] || payload.model;
   let effort = suppliedEffort(payload, variant?.[2]);
+  let fast = suppliedFast(variant?.[2]);
   if (!allowedEfforts.includes(effort)) {
-    const legacy = catalog.find((model) => model.reasoningEfforts?.some((value) => payload.model === `${model.alias}-${value}`));
+    const legacy = catalog.find((model) => model.reasoningEfforts?.some((value) => (
+      payload.model === `${model.alias}-${value}` || payload.model === `${model.alias}-${value}-fast`
+    )));
     if (legacy) {
-      effort = legacy.reasoningEfforts.find((value) => payload.model === `${legacy.alias}-${value}`);
+      effort = legacy.reasoningEfforts.find((value) => (
+        payload.model === `${legacy.alias}-${value}` || payload.model === `${legacy.alias}-${value}-fast`
+      ));
+      fast = payload.model.endsWith("-fast") ? "true" : "false";
       alias = legacy.alias;
     }
   }
@@ -55,6 +68,8 @@ export function rewriteModelAliasBody(body, catalog) {
   payload.model = catalogModel?.sourceId
     || (fallbackSourceId.startsWith("claude-") ? `anthropic/${fallbackSourceId}` : fallbackSourceId);
   if (allowedEfforts.includes(effort)) payload.reasoning_effort = effort;
+  if (catalogModel?.supportsFast && fast === "true") payload.service_tier = "priority";
+  if (catalogModel?.supportsFast && fast === "false") delete payload.service_tier;
   delete payload.reasoningEffort;
   return Buffer.from(JSON.stringify(payload));
 }
@@ -77,6 +92,7 @@ export function enrichModelList(active, catalog) {
         supports_tool_use: true,
         supports_streaming: true,
         supports_reasoning: model.reasoningEfforts.length > 0,
+        supports_fast: model.supportsFast,
         supports_vision: model.inputModalities.includes("image"),
         reasoning_effort: model.reasoningEfforts,
       },

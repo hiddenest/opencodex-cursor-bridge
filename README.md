@@ -185,6 +185,12 @@ The status output should show `Service: running` and `Gateway: healthy`. The pub
 
 Open Cursor after both checks pass. Models with known reasoning controls show an effort value in the picker. Use `Shift+Command+/` to cycle it.
 
+### Fast mode
+
+OpenAI models whose OpenCodex catalog advertises the `priority` service tier show a Fast toggle in Cursor. Fast is off by default. When enabled, the bridge sends `service_tier: "priority"` to OpenCodex, which increases generation speed and consumes more usage.
+
+Fast requires an OpenCodex version that preserves `service_tier` on its Chat Completions compatibility endpoint. Models without the `priority` tier, including Anthropic subscription models, do not receive the toggle.
+
 ## How requests are routed
 
 ```text
@@ -204,11 +210,14 @@ The gateway API key is generated during `init` and stored in Cursor with macOS S
 | --- | --- |
 | `ocx-cursor init [--base-url URL]` | Install the service, prompt for and test the tunnel, configure Cursor, and sync models. Cursor must be closed. |
 | `ocx-cursor install` | Reinstall or restart the LaunchAgent without changing Cursor's API settings. |
+| `ocx-cursor update` | Download the latest `ocx-cursor` release from npm, reinstall the service, and sync models. |
 | `ocx-cursor sync` | Refresh the active model catalog. The service queues the update while Cursor runs. |
 | `ocx-cursor status` | Show service health, model count, and pending sync state. |
 | `ocx-cursor uninstall` | Remove the LaunchAgent, command link, and bridge home directory. |
 
 `uninstall` leaves Cursor's custom endpoint and model records in its state database.
+
+`update` preserves the existing gateway API key and Cursor endpoint. It updates only this companion package; update OpenCodex separately with your package manager.
 
 ## Model mapping
 

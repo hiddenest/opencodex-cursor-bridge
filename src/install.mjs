@@ -176,6 +176,18 @@ export async function installService() {
   return { installRoot, launchAgentFile, cliLinkFile, secretStatus };
 }
 
+export function updateService(options = {}) {
+  const execute = options.execFileSync || execFileSync;
+  execute(options.npmCommand || "npm", [
+    "exec",
+    "--yes",
+    "--package=ocx-cursor@latest",
+    "--",
+    "ocx-cursor",
+    "install",
+  ], { stdio: "inherit" });
+}
+
 export async function uninstallService() {
   bootout(serviceLabel);
   await rm(launchAgentFile, { force: true });
