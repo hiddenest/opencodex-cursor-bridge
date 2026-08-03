@@ -1,5 +1,5 @@
 {
-  "name": "opencodex-cursor-bridge",
+  "name": "ocx-cursor",
   "version": "0.1.0",
   "description": "OpenCodex companion service for Cursor custom models",
   "keywords": [
@@ -34,6 +34,9 @@
   },
   "engines": {
     "node": ">=22.5"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "license": "MIT"
 }

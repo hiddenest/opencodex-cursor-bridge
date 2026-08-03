@@ -1,5 +1,6 @@
 # OpenCodex Cursor Bridge
 
+[![npm version](https://img.shields.io/npm/v/ocx-cursor.svg)](https://www.npmjs.com/package/ocx-cursor)
 [![CI](https://github.com/hiddenest/opencodex-cursor-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/hiddenest/opencodex-cursor-bridge/actions/workflows/ci.yml)
 
 Use active [OpenCodex](https://github.com/lidge-jun/opencodex) models in Cursor through its custom OpenAI endpoint. The package runs a local gateway and keeps Cursor's custom model list in sync.
@@ -44,7 +45,7 @@ The package does not install or manage the tunnel.
 Quit Cursor, confirm that OpenCodex is running, then run:
 
 ```bash
-npx github:hiddenest/opencodex-cursor-bridge init \
+npx ocx-cursor init \
   --base-url https://cursor-api.example.com/v1
 ```
 
