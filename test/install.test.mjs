@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { updateService } from "../src/install.mjs";
 
-test("updates through the latest npm release and reinstalls the service", () => {
+test("updates through the latest npm release from an isolated directory", async () => {
   let call;
-  updateService({
+  await updateService({
     npmCommand: "/test/npm",
+    temporaryDirectory: "/test/update-directory",
     execFileSync(command, args, options) {
       call = { command, args, options };
     },
@@ -21,6 +22,6 @@ test("updates through the latest npm release and reinstalls the service", () => 
       "ocx-cursor",
       "install",
     ],
-    options: { stdio: "inherit" },
+    options: { cwd: "/test/update-directory", stdio: "inherit" },
   });
 });

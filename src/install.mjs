@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { access, chmod, copyFile, cp, lstat, mkdir, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -176,16 +177,22 @@ export async function installService() {
   return { installRoot, launchAgentFile, cliLinkFile, secretStatus };
 }
 
-export function updateService(options = {}) {
+export async function updateService(options = {}) {
   const execute = options.execFileSync || execFileSync;
-  execute(options.npmCommand || "npm", [
-    "exec",
-    "--yes",
-    "--package=ocx-cursor@latest",
-    "--",
-    "ocx-cursor",
-    "install",
-  ], { stdio: "inherit" });
+  const ownsTemporaryDirectory = !options.temporaryDirectory;
+  const temporaryDirectory = options.temporaryDirectory || await mkdtemp(join(tmpdir(), "ocx-cursor-update-"));
+  try {
+    execute(options.npmCommand || "npm", [
+      "exec",
+      "--yes",
+      "--package=ocx-cursor@latest",
+      "--",
+      "ocx-cursor",
+      "install",
+    ], { cwd: temporaryDirectory, stdio: "inherit" });
+  } finally {
+    if (ownsTemporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true });
+  }
 }
 
 export async function uninstallService() {

@@ -112,7 +112,7 @@ async function main() {
   }
   if (command === "update") {
     process.stdout.write("Updating OpenCodex Cursor Bridge from npm...\n");
-    updateService();
+    await updateService();
     return;
   }
   if (command === "sync") {
