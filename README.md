@@ -59,6 +59,8 @@ Cursor -> 127.0.0.1:10101 -> OpenCodex on 127.0.0.1:10100 -> provider
 
 The gateway requires its generated bearer token on every `/v1/*` request. It binds to `127.0.0.1` unless you change `OCX_CURSOR_HOST`.
 
+Active OpenCodex `cursor/*` models are exposed under `opencodex/cursor/*`. The provider is experimental; the bridge cancels its upstream request when Cursor ends the matching client request.
+
 ## Model behavior
 
 The bridge reads OpenCodex's active `/v1/models` response and creates stable Cursor aliases:

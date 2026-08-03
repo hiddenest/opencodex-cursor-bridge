@@ -118,10 +118,15 @@ async function serviceToken() {
   }
 }
 
-function authorized(req, expected) {
-  const supplied = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
-  const actual = Buffer.from(supplied);
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
+export function authorized(req, expected) {
+  const supplied = [
+    String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim(),
+    String(req.headers["x-api-key"] || "").trim(),
+  ];
+  return supplied.some((value) => {
+    const actual = Buffer.from(value);
+    return actual.length === expected.length && timingSafeEqual(actual, expected);
+  });
 }
 
 function json(res, status, body) {
@@ -161,7 +166,7 @@ function upstreamHeaders(req, body, token, upstream) {
 
 export function startGateway(options) {
   const host = options.host || gatewayHost;
-  const port = options.port || gatewayPort;
+  const port = options.port ?? gatewayPort;
   const expected = Buffer.from(options.secret);
   let activeRequests = 0;
 
@@ -179,16 +184,29 @@ export function startGateway(options) {
     if (activeRequests >= 8) return json(res, 429, { error: { message: "bridge concurrency limit reached", type: "rate_limit_error" } });
 
     activeRequests += 1;
-    res.once("close", () => { activeRequests = Math.max(0, activeRequests - 1); });
+    let upstreamReq;
+    let downstreamClosed = false;
+    const cancelUpstream = () => {
+      downstreamClosed = true;
+      if (upstreamReq && !upstreamReq.destroyed) upstreamReq.destroy();
+    };
+    req.once("aborted", cancelUpstream);
+    res.once("close", () => {
+      activeRequests = Math.max(0, activeRequests - 1);
+      if (!res.writableEnded) cancelUpstream();
+    });
     try {
       if (route === "GET /v1/models") {
         return json(res, 200, enrichModelList(await activeModels(), catalog));
       }
 
-      const upstream = opencodexEndpoint();
-      const body = rewriteModelAliasBody(await readBody(req), catalog);
-      const token = await serviceToken();
-      const upstreamReq = http.request({
+      const upstream = options.upstream || opencodexEndpoint();
+      const receivedBody = await readBody(req);
+      if (downstreamClosed) return;
+      const body = rewriteModelAliasBody(receivedBody, catalog);
+      const token = options.serviceToken !== undefined ? options.serviceToken : await serviceToken();
+      if (downstreamClosed) return;
+      upstreamReq = http.request({
         hostname: upstream.host,
         port: upstream.port,
         method: req.method,
@@ -204,6 +222,7 @@ export function startGateway(options) {
         });
       });
       upstreamReq.on("error", (error) => {
+        if (downstreamClosed) return;
         if (!res.headersSent) json(res, 502, { error: { message: "OpenCodex upstream unavailable", type: "upstream_error" } });
         else res.destroy(error);
       });

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import http from "node:http";
+import { once } from "node:events";
 import test from "node:test";
-import { enrichModelList, rewriteModelAliasBody } from "../src/gateway.mjs";
+import { authorized, enrichModelList, rewriteModelAliasBody, startGateway } from "../src/gateway.mjs";
 
 const anthropic = {
   alias: "opencodex/claude-sonnet-5",
@@ -21,6 +23,22 @@ const openai = {
   reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
   supportsFast: true,
 };
+
+test("accepts bridge credentials from bearer and Anthropic API key headers", () => {
+  const expected = Buffer.from("bridge-secret");
+
+  assert.equal(authorized({ headers: { authorization: "Bearer bridge-secret" } }, expected), true);
+  assert.equal(authorized({ headers: { "x-api-key": "bridge-secret" } }, expected), true);
+  assert.equal(authorized({ headers: { authorization: "Bearer wrong", "x-api-key": "bridge-secret" } }, expected), true);
+});
+
+test("rejects missing or invalid bridge credentials", () => {
+  const expected = Buffer.from("bridge-secret");
+
+  assert.equal(authorized({ headers: {} }, expected), false);
+  assert.equal(authorized({ headers: { authorization: "Bearer wrong" } }, expected), false);
+  assert.equal(authorized({ headers: { "x-api-key": "wrong" } }, expected), false);
+});
 
 test("rewrites a Cursor effort variant to the OpenCodex source model", () => {
   const body = Buffer.from(JSON.stringify({
@@ -99,4 +117,53 @@ test("advertises Anthropic aliases through the messages protocol", () => {
   assert.deepEqual(result.data[0].api_types, ["anthropic_messages"]);
   assert.deepEqual(result.data[0].capabilities.reasoning_effort, ["low", "medium", "high"]);
   assert.equal(result.data[0].capabilities.supports_vision, true);
+});
+
+test("cancels the upstream request when the Cursor client disconnects", async () => {
+  let upstreamStarted;
+  let upstreamClosed;
+  const started = new Promise((resolve) => { upstreamStarted = resolve; });
+  const closed = new Promise((resolve) => { upstreamClosed = resolve; });
+  const upstream = http.createServer((req) => {
+    upstreamStarted();
+    req.once("close", upstreamClosed);
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+
+  const upstreamAddress = upstream.address();
+  const gateway = startGateway({
+    secret: "bridge-secret",
+    getCatalog: () => [],
+    host: "127.0.0.1",
+    port: 0,
+    upstream: { host: "127.0.0.1", port: upstreamAddress.port },
+    serviceToken: "",
+  });
+  await once(gateway, "listening");
+  const gatewayAddress = gateway.address();
+
+  const client = http.request({
+    hostname: "127.0.0.1",
+    port: gatewayAddress.port,
+    method: "POST",
+    path: "/v1/chat/completions",
+    headers: {
+      authorization: "Bearer bridge-secret",
+      "content-type": "application/json",
+    },
+  });
+  client.on("error", () => {});
+  client.end(JSON.stringify({ model: "opencodex/gpt-test", messages: [] }));
+
+  await started;
+  client.destroy();
+  await Promise.race([
+    closed,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("upstream request remained open")), 2_000)),
+  ]);
+  await Promise.all([
+    new Promise((resolve) => gateway.close(resolve)),
+    new Promise((resolve) => upstream.close(resolve)),
+  ]);
 });
