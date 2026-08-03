@@ -3,19 +3,17 @@
 [![npm version](https://img.shields.io/npm/v/ocx-cursor.svg)](https://www.npmjs.com/package/ocx-cursor)
 [![CI](https://github.com/hiddenest/opencodex-cursor-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/hiddenest/opencodex-cursor-bridge/actions/workflows/ci.yml)
 
-Use active [OpenCodex](https://github.com/lidge-jun/opencodex) models in Cursor through its custom OpenAI endpoint. The package runs a local gateway, registers the endpoint in Cursor, and keeps Cursor's custom model list in sync.
+Use active [OpenCodex](https://github.com/lidge-jun/opencodex) models in Cursor through its custom OpenAI endpoint. The package runs a loopback-only gateway, registers it in Cursor, and keeps Cursor's custom model list in sync.
 
 ## Requirements
 
 - macOS with Cursor installed at `/Applications/Cursor.app`
 - Node.js 22.5 or newer
-- A domain using Cloudflare DNS, or another HTTPS reverse proxy
+- OpenCodex installed and configured
 
 Launch Cursor and sign in once before setup. Cursor creates the Safe Storage key that the installer uses to encrypt the gateway API key.
 
 ## Setup
-
-The commands below use `cursor-api.example.com`. Replace it with a hostname under your own Cloudflare-managed domain.
 
 ### 1. Install OpenCodex
 
@@ -37,32 +35,22 @@ if [[ "$(command -v ocx)" != "$HOME/.local/bin/ocx" ]]; then
 fi
 ```
 
-`ocx init` opens the interactive provider setup. You can also open the dashboard and add or sign in to a provider there:
+`ocx init` opens the interactive provider setup. You can also configure providers through the dashboard or terminal:
 
 ```bash
 ocx gui
-```
-
-OAuth-backed providers can also be connected from the terminal:
-
-```bash
 ocx login <provider>
 ```
 
-Install OpenCodex as a login service, then check it:
+Install OpenCodex as a login service, then verify it:
 
 ```bash
 ocx service install
 ocx service status
-```
-
-OpenCodex listens on `http://127.0.0.1:10100` by default. Confirm that its model endpoint responds:
-
-```bash
 curl http://127.0.0.1:10100/v1/models
 ```
 
-If you configured OpenCodex with a service API token, include that token:
+If you configured OpenCodex with a service API token, include it in the request:
 
 ```bash
 curl \
@@ -70,68 +58,9 @@ curl \
   http://127.0.0.1:10100/v1/models
 ```
 
-See the [OpenCodex documentation](https://lidge-jun.github.io/opencodex/) for provider-specific login and model configuration.
+See the [OpenCodex documentation](https://lidge-jun.github.io/opencodex/) for provider-specific setup.
 
-### 2. Create a Cloudflare Tunnel
-
-Cursor requires an HTTPS custom OpenAI endpoint. A [Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/) can publish the bridge on HTTPS without opening an inbound port on your router.
-
-Add your domain to Cloudflare and point its nameservers to Cloudflare. Then install `cloudflared` on the Mac that runs OpenCodex and Cursor:
-
-```bash
-brew install cloudflared
-cloudflared tunnel login
-```
-
-The login command opens Cloudflare in your browser and writes `~/.cloudflared/cert.pem`. Create a [locally-managed named tunnel](https://developers.cloudflare.com/tunnel/advanced/local-management/create-local-tunnel/):
-
-```bash
-cloudflared tunnel create ocx-cursor
-cloudflared tunnel list
-```
-
-Copy the tunnel UUID printed by the command. It also creates a credentials file named `<TUNNEL_UUID>.json` under `~/.cloudflared`.
-
-Create `~/.cloudflared/config.yml`. Replace the UUID, macOS username, and hostname in this example:
-
-```yaml
-# ~/.cloudflared/config.yml
-tunnel: YOUR_TUNNEL_UUID
-credentials-file: /Users/YOUR_MACOS_USERNAME/.cloudflared/YOUR_TUNNEL_UUID.json
-
-ingress:
-  - hostname: cursor-api.example.com
-    service: http://127.0.0.1:10101
-  - service: http_status:404
-```
-
-Create the DNS CNAME for the public hostname. The command adds the record to Cloudflare, so you do not need to create it separately in the dashboard:
-
-```bash
-cloudflared tunnel route dns ocx-cursor cursor-api.example.com
-```
-
-Validate the configuration and start the tunnel in the foreground:
-
-```bash
-cloudflared tunnel ingress validate
-cloudflared tunnel ingress rule https://cursor-api.example.com
-cloudflared tunnel run ocx-cursor
-```
-
-The public hostname returns `502 Bad Gateway` until the bridge is installed in the next step. Keep this terminal open while testing.
-
-For login-time startup on macOS, stop the foreground process and install the `cloudflared` launch agent:
-
-```bash
-cloudflared service install
-```
-
-Use `sudo cloudflared service install` only if you want a system launch daemon that starts at boot. That mode reads its configuration from `/etc/cloudflared`, not your home directory. See Cloudflare's [macOS service guide](https://developers.cloudflare.com/tunnel/advanced/local-management/as-a-service/macos/) for the required file locations.
-
-This package does not create, modify, or remove the Cloudflare Tunnel.
-
-### 3. Install the Cursor bridge
+### 2. Install the Cursor bridge
 
 Quit Cursor completely, confirm that OpenCodex is running, then initialize the bridge:
 
@@ -139,51 +68,47 @@ Quit Cursor completely, confirm that OpenCodex is running, then initialize the b
 npx ocx-cursor init
 ```
 
-Enter the Cloudflare Tunnel hostname when prompted. The `https://` prefix and `/v1` suffix are optional:
-
-```text
-Cloudflare Tunnel URL (for example, https://cursor-api.example.com): https://cursor-api.example.com
-```
-
-The installer starts the local bridge and tests two routes through Cloudflare before it changes Cursor:
-
-- `GET /healthz` confirms that the hostname reaches this bridge.
-- Authenticated `GET /v1/models` confirms that request headers reach the bridge and OpenCodex responds.
-
-If either check fails, `init` stops before writing Cursor's API settings. The local bridge stays running so you can fix the tunnel and rerun the command.
-
-For scripts and unattended setup, pass the URL directly:
-
-```bash
-npx ocx-cursor init \
-  --base-url https://cursor-api.example.com/v1
-```
-
-`init` performs these actions:
+No tunnel or public domain is required. `init` uses `http://127.0.0.1:10101/v1` and performs these actions:
 
 1. Generates a gateway API key in `~/.opencodex/cursor-bridge/secret`.
 2. Installs the `com.opencodex.cursor-bridge` LaunchAgent.
-3. Tests the Cloudflare Tunnel and OpenCodex model endpoint.
+3. Tests the local gateway and OpenCodex model endpoint.
 4. Stores the key in Cursor with macOS Safe Storage encryption.
-5. Registers the HTTPS URL as Cursor's OpenAI base URL.
+5. Registers the local gateway as Cursor's OpenAI base URL.
 6. Adds active OpenCodex models to Cursor under `opencodex/*`.
+7. Enables Cursor's local-agent mode and installs the model metadata patches described below.
 
-The installer links `ocx-cursor` into `~/.local/bin`. Add that directory to `PATH` if your shell does not include it:
+`init` patches ten JavaScript files inside `Cursor.app`:
+
+- Eight Cursor bundles get the local-mode build flag.
+- The Desktop and Glass workbench bundles retain OpenCodex display names, effort choices, and Fast metadata when Cursor refreshes its server catalog.
+- Both local-agent runtimes display names such as `GPT 5.6 Sol` while keeping `opencodex/gpt-5.6-sol` as the request ID.
+
+Original files are copied to `~/.opencodex/cursor-bridge/cursor-app-backups` before they are changed. The LaunchAgent watches the same files and reapplies the patches after a Cursor update, once Cursor has quit.
+
+> [!WARNING]
+> Patching `Cursor.app` invalidates its vendor code signature. Cursor may show “Your Cursor installation appears to be corrupt.” This is expected for this integration. Reinstall Cursor to restore an unmodified, vendor-signed app.
+
+The installer links `ocx-cursor` into `~/.local/bin`. Add that directory to `PATH` if needed:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Check the local gateway and public hostname before opening Cursor:
+Check the service before opening Cursor:
 
 ```bash
 ocx-cursor status
-curl https://cursor-api.example.com/healthz
+curl http://127.0.0.1:10101/healthz
 ```
 
-The status output should show `Service: running` and `Gateway: healthy`. The public health endpoint should return JSON with `"status":"ok"`.
+The status output should show `Service: running` and `Gateway: healthy`. Open Cursor after both checks pass.
 
-Open Cursor after both checks pass. Models with known reasoning controls show an effort value in the picker. Use `Shift+Command+/` to cycle it.
+To use an explicit HTTPS reverse proxy instead, pass its URL directly. This is optional and not used by the default setup:
+
+```bash
+npx ocx-cursor init --base-url https://cursor-api.example.com/v1
+```
 
 ### Fast mode
 
@@ -195,30 +120,28 @@ Fast requires an OpenCodex version that preserves `service_tier` on its Chat Com
 
 ```text
 Cursor
-  -> https://cursor-api.example.com/v1
-  -> Cloudflare Tunnel
-  -> OpenCodex Cursor Bridge on 127.0.0.1:10101
-  -> OpenCodex on 127.0.0.1:10100
+  -> OpenCodex Cursor Bridge on http://127.0.0.1:10101/v1
+  -> OpenCodex on http://127.0.0.1:10100
   -> configured provider
 ```
 
-The gateway API key is generated during `init` and stored in Cursor with macOS Safe Storage encryption. The bridge requires this bearer token on every `/v1/*` request. Keep the bridge bound to `127.0.0.1`; `cloudflared` can reach it without exposing port `10101` to the local network.
+The gateway API key is generated during `init` and stored in Cursor with macOS Safe Storage encryption. The bridge requires this bearer token on every `/v1/*` request and binds to `127.0.0.1` by default.
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `ocx-cursor init [--base-url URL]` | Install the service, prompt for and test the tunnel, configure Cursor, and sync models. Cursor must be closed. |
-| `ocx-cursor install` | Reinstall or restart the LaunchAgent without changing Cursor's API settings. |
-| `ocx-cursor update` | Download the latest `ocx-cursor` release from npm, reinstall the service, and sync models. |
+| `ocx-cursor init [--base-url URL]` | Install the service, test the endpoint, configure Cursor, and sync models. Cursor must be closed. |
+| `ocx-cursor install` | Reinstall the LaunchAgent and verify app patches, or queue them until Cursor quits. |
+| `ocx-cursor update` | Download the latest release from npm, reinstall the service, verify patches, and sync models. |
 | `ocx-cursor sync` | Refresh the active model catalog. The service queues the update while Cursor runs. |
 | `ocx-cursor launch` | Experimentally launch Cursor with live effort and Fast metadata injection. Keep the command running. |
 | `ocx-cursor status` | Show service health, model count, and pending sync state. |
 | `ocx-cursor uninstall` | Remove the LaunchAgent, command link, and bridge home directory. |
 
-`uninstall` leaves Cursor's custom endpoint and model records in its state database.
+`uninstall` leaves Cursor's custom endpoint, model records, and app patches in place. Reinstall Cursor if you want to restore its original signed files.
 
-`update` preserves the existing gateway API key and Cursor endpoint. It updates only this companion package; update OpenCodex separately with your package manager.
+`update` preserves the existing gateway API key and Cursor endpoint. If Cursor is running, app patches and model sync are queued until it quits. The command updates only this companion package; update OpenCodex separately with your package manager.
 
 ## Model mapping
 
@@ -229,9 +152,13 @@ anthropic/claude-sonnet-5  -> opencodex/claude-sonnet-5
 gpt-5.6-sol                -> opencodex/gpt-5.6-sol
 ```
 
-The catalog includes models returned by OpenCodex's active `/v1/models` endpoint. It excludes the OpenCodex `cursor/*` provider to avoid duplicating Cursor's own models.
+The catalog includes every model returned by OpenCodex's active `/v1/models` endpoint, including models from the `cursor/*` provider. Cursor-backed aliases use the `opencodex/cursor/*` prefix so they remain distinct from Cursor's built-in entries.
 
-Cursor removes custom effort metadata from its database during startup. The LaunchAgent writes that metadata back after Cursor exits, once all Cursor Helper processes have stopped.
+Cursor removes custom effort metadata from its database during startup. The companion LaunchAgent patches the Desktop and Glass catalog storage steps so `opencodex/*` display names, effort, and Fast metadata survive server refreshes. It monitors the installed bundles and local-agent runtimes, then reapplies their patches when Cursor replaces the app during an update.
+
+`init`, `install`, and `update` also patch Cursor's local model runtimes so provider refreshes keep human-readable names such as `GPT 5.6 Sol` while requests continue using stable `opencodex/*` model IDs.
+
+Cursor sends some built-in function tools with `strict: true` even when their JSON schema is not valid for strict mode. The gateway changes that flag to `false` for OpenCodex requests, preventing errors such as `additionalProperties is required to be supplied and to be false` without changing tool arguments.
 
 ### Experimental live model metadata
 
@@ -241,16 +168,16 @@ Cursor removes custom effort metadata from its database during startup. The Laun
 ocx-cursor launch
 ```
 
-Keep the command running for the lifetime of Cursor. This does not modify `Cursor.app`, but it depends on Cursor's private workbench code and currently supports Cursor 3.14.7. The command stops with a compatibility error when it cannot find the expected catalog hook.
+Keep the command running for the lifetime of Cursor. This does not modify `Cursor.app`, but it depends on Cursor's private workbench code and supports only known Cursor builds.
 
 ## Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OCX_CURSOR_BASE_URL` | Stored Cursor URL | Prompt default, or endpoint for non-interactive `init`, when `--base-url` is absent. |
+| `OCX_CURSOR_BASE_URL` | `http://127.0.0.1:10101/v1` | Endpoint used by `init` when `--base-url` is absent. |
 | `OCX_CURSOR_HOME` | `~/.opencodex/cursor-bridge` | Service state, API key, catalog, and logs. |
 | `OCX_CURSOR_HOST` | `127.0.0.1` | Local gateway bind address. |
-| `OCX_CURSOR_PORT` | `10101` | Local gateway port. |
+| `OCX_CURSOR_PORT` | `10101` | Local gateway port. Also changes the default Cursor endpoint. |
 | `OCX_BIN` | `~/.local/bin/ocx` | OpenCodex CLI path. |
 
 The gateway accepts these routes:
@@ -260,52 +187,30 @@ The gateway accepts these routes:
 - `POST /v1/responses` and `/v1/responses/compact`
 - `POST /v1/messages`
 
-The gateway requires its generated bearer token on each `/v1/*` request. It binds to loopback unless you change `OCX_CURSOR_HOST`.
-
 ## Troubleshooting
-
-### The public hostname returns 502
-
-The tunnel is running, but it cannot reach the local bridge. Check the bridge and its logs:
-
-```bash
-ocx-cursor status
-tail -n 100 ~/.opencodex/cursor-bridge/service.error.log
-tail -n 100 ~/.opencodex/cursor-bridge/service.log
-```
-
-Confirm that the tunnel ingress points to `http://127.0.0.1:10101`, then restart the bridge if needed:
-
-```bash
-ocx-cursor install
-```
-
-### Cloudflare returns error 1016
-
-The DNS record exists, but no tunnel connector is online. Check the named tunnel and start it:
-
-```bash
-cloudflared tunnel info ocx-cursor
-cloudflared tunnel run ocx-cursor
-```
-
-If you installed the login service, inspect it with:
-
-```bash
-launchctl print "gui/$(id -u)/com.cloudflare.cloudflared"
-```
 
 ### Cursor returns 401
 
-Run `init` again while Cursor is closed. It preserves the bridge key, retests the tunnel, and writes the matching encrypted value back to Cursor:
+Quit Cursor and run `init` again. It preserves the bridge key, tests the local endpoint, and writes the matching encrypted value back to Cursor:
 
 ```bash
 npx ocx-cursor init
 ```
 
+### The local gateway is unavailable
+
+Check the service and logs, then reinstall it if needed:
+
+```bash
+ocx-cursor status
+tail -n 100 ~/.opencodex/cursor-bridge/service.error.log
+tail -n 100 ~/.opencodex/cursor-bridge/service.log
+ocx-cursor install
+```
+
 ### Models or effort options are missing
 
-Cursor must be closed before its local model database can be changed. Quit Cursor and run:
+Quit Cursor and run:
 
 ```bash
 ocx-cursor sync
@@ -313,6 +218,17 @@ ocx-cursor status
 ```
 
 If the status shows a pending sync, wait until every Cursor Helper process has exited. The service applies the queued catalog automatically.
+
+### Patches are missing after a Cursor update
+
+Quit every Cursor window and wait for its Helper processes to stop. The LaunchAgent detects replaced app files and reapplies local mode, metadata, and display-name patches. Check the result with:
+
+```bash
+ocx-cursor install
+tail -n 100 ~/.opencodex/cursor-bridge/service.log
+```
+
+The patcher stops without modifying a file when a Cursor release no longer matches its known code structure. Check `service.error.log` in that case.
 
 ### OpenCodex models cannot be loaded
 
@@ -338,7 +254,7 @@ The code uses `node:sqlite`, so development requires Node.js 22.5 or newer.
 
 ## Compatibility
 
-The package writes Cursor's local state database and uses Cursor's Safe Storage format. Cursor does not document either interface. A Cursor update can change them.
+The package writes Cursor's local state database, uses Cursor's Safe Storage format, and modifies private code inside `Cursor.app`. Cursor does not document these interfaces. A Cursor update can change them.
 
 The current release supports macOS. It does not configure Windows Credential Manager, Linux keyrings, or system services outside launchd.
 
