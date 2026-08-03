@@ -43,6 +43,7 @@ test("adds display names, Fast, and advertised reasoning efforts to the local ru
   const factory = runtime.factory;
   assert.equal(factory("opencodex/gpt-5.6-sol").displayName, "GPT 5.6 Sol");
   assert.equal(factory("opencodex/claude-opus-5").displayName, "Claude Opus 5");
+  assert.equal(factory("opencodex/cursor/kimi-k3").displayName, "Cursor Kimi K3");
   assert.equal(factory("native-model").displayName, "native-model");
   assert.equal(factory("opencodex/gpt-5.6-sol", "Custom").displayName, "Custom");
 
@@ -120,7 +121,7 @@ test("upgrades the legacy metadata hook", () => {
   );
   const result = patchCursorWorkbenchSource(legacy);
   assert.equal(result.status, "patched");
-  assert.match(result.source, /ocx-cursor-model-metadata-v4/);
+  assert.match(result.source, /ocx-cursor-model-metadata-v5/);
   assert.doesNotMatch(result.source, /ocx-cursor-model-metadata\*\//);
   assert.match(result.source, /clientDisplayName:ocxCursorDisplayName/);
 });
@@ -132,7 +133,7 @@ test("upgrades the v2 metadata hook", () => {
   );
   const result = patchCursorWorkbenchSource(v2);
   assert.equal(result.status, "patched");
-  assert.match(result.source, /ocx-cursor-model-metadata-v4/);
+  assert.match(result.source, /ocx-cursor-model-metadata-v5/);
   assert.doesNotMatch(result.source, /ocx-cursor-model-metadata-v2/);
   assert.match(result.source, /ocxCursorDisplayWords/);
 });
@@ -144,7 +145,7 @@ test("upgrades the v3 metadata hook and prefers fresh picker metadata", () => {
   );
   const result = patchCursorWorkbenchSource(v3);
   assert.equal(result.status, "patched");
-  assert.match(result.source, /ocx-cursor-model-metadata-v4/);
+  assert.match(result.source, /ocx-cursor-model-metadata-v5/);
   assert.doesNotMatch(result.source, /ocx-cursor-model-metadata-v3/);
   assert.match(result.source, /ocxCursorModel\.parameterDefinitions\.length>0/);
   assert.match(result.source, /ocxCursorModel\.variants\.length>0/);

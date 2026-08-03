@@ -42,7 +42,8 @@ function displayWord(value) {
 }
 
 export function displayNameFor(model) {
-  return model.sourceId.split("/").at(-1).split("-").map(displayWord).join(" ");
+  const displayName = model.sourceId.split("/").at(-1).split("-").map(displayWord).join(" ");
+  return model.provider === "cursor" || model.sourceId.startsWith("cursor/") ? `Cursor ${displayName}` : displayName;
 }
 
 export function cursorIsRunning() {
@@ -166,6 +167,9 @@ function syncSelectedModel(state, catalog) {
   const composer = state.aiSettings?.modelConfig?.composer;
   if (!composer || !Array.isArray(composer.selectedModels)) return;
   const byAlias = new Map(catalog.map((model) => [model.alias, model]));
+  composer.selectedModels = composer.selectedModels.filter((selected) => (
+    typeof selected?.modelId !== "string" || !selected.modelId.startsWith(managedPrefix) || byAlias.has(selected.modelId)
+  ));
   for (const selected of composer.selectedModels) {
     const model = byAlias.get(selected.modelId);
     if (!model || (model.reasoningEfforts.length === 0 && !model.supportsFast)) continue;
@@ -188,7 +192,7 @@ export function applyCatalogToState(state, catalog) {
   const keepUnmanaged = (value) => typeof value !== "string" || !value.startsWith(managedPrefix);
   const existingModels = Array.isArray(state.availableDefaultModels2) ? state.availableDefaultModels2 : [];
   state.availableDefaultModels2 = [
-    ...existingModels.filter((model) => !(model?.isUserAdded && typeof model.name === "string" && model.name.startsWith(managedPrefix))),
+    ...existingModels.filter((model) => !(typeof model?.name === "string" && model.name.startsWith(managedPrefix))),
     ...catalog.map(cursorModel),
   ];
   state.aiSettings ||= {};
@@ -200,6 +204,14 @@ export function applyCatalogToState(state, catalog) {
     ...(Array.isArray(state.aiSettings.modelOverrideEnabled) ? state.aiSettings.modelOverrideEnabled.filter(keepUnmanaged) : []),
     ...aliases,
   ];
+  if (state.aiSettings.modelParameterPreferences && typeof state.aiSettings.modelParameterPreferences === "object") {
+    const activeAliases = new Set(aliases);
+    for (const alias of Object.keys(state.aiSettings.modelParameterPreferences)) {
+      if (alias.startsWith(managedPrefix) && !activeAliases.has(alias)) {
+        delete state.aiSettings.modelParameterPreferences[alias];
+      }
+    }
+  }
   syncSelectedModel(state, catalog);
   return state;
 }

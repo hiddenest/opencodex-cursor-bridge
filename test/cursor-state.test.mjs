@@ -34,6 +34,7 @@ test("builds Cursor variants for effort and Fast selectors", () => {
 test("formats provider model ids as human-readable names", () => {
   assert.equal(displayNameFor({ sourceId: "openai/gpt-5.6-sol" }), "GPT 5.6 Sol");
   assert.equal(displayNameFor({ sourceId: "anthropic/claude-opus-5" }), "Claude Opus 5");
+  assert.equal(displayNameFor({ sourceId: "cursor/kimi-k3", provider: "cursor" }), "Cursor Kimi K3");
   assert.equal(displayNameFor({ sourceId: "opencode-go/deepseek-v4-flash" }), "DeepSeek V4 Flash");
   assert.equal(displayNameFor({ sourceId: "opencode-go/qwen3.8-max" }), "Qwen 3.8 Max");
 });
@@ -43,12 +44,21 @@ test("replaces only bridge-managed user models", () => {
     availableDefaultModels2: [
       { name: "cursor/builtin" },
       { name: "custom/keep", isUserAdded: true },
-      { name: "opencodex/stale", isUserAdded: true },
+      { name: "opencodex/stale" },
     ],
     aiSettings: {
       userAddedModels: ["custom/keep", "opencodex/stale"],
       modelOverrideEnabled: ["custom/keep", "opencodex/stale"],
-      modelConfig: { composer: { selectedModels: [{ modelId: model.alias, parameters: [{ id: "fast", value: "true" }] }] } },
+      modelParameterPreferences: {
+        "custom/keep": { modelId: "custom/keep" },
+        "opencodex/stale": { modelId: "opencodex/stale" },
+        [model.alias]: { modelId: model.alias },
+      },
+      modelConfig: { composer: { selectedModels: [
+        { modelId: "custom/keep", parameters: [] },
+        { modelId: "opencodex/stale", parameters: [] },
+        { modelId: model.alias, parameters: [{ id: "fast", value: "true" }] },
+      ] } },
     },
   };
 
@@ -59,7 +69,9 @@ test("replaces only bridge-managed user models", () => {
     "opencodex/claude-sonnet-5",
   ]);
   assert.deepEqual(state.aiSettings.userAddedModels, ["custom/keep", "opencodex/claude-sonnet-5"]);
-  assert.deepEqual(state.aiSettings.modelConfig.composer.selectedModels[0].parameters, [
+  assert.deepEqual(Object.keys(state.aiSettings.modelParameterPreferences), ["custom/keep", model.alias]);
+  assert.deepEqual(state.aiSettings.modelConfig.composer.selectedModels.map(({ modelId }) => modelId), ["custom/keep", model.alias]);
+  assert.deepEqual(state.aiSettings.modelConfig.composer.selectedModels[1].parameters, [
     { id: "effort", value: "high" },
     { id: "fast", value: "true" },
   ]);
