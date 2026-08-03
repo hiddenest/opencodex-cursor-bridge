@@ -3,27 +3,101 @@
 [![npm version](https://img.shields.io/npm/v/ocx-cursor.svg)](https://www.npmjs.com/package/ocx-cursor)
 [![CI](https://github.com/hiddenest/opencodex-cursor-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/hiddenest/opencodex-cursor-bridge/actions/workflows/ci.yml)
 
-Use active [OpenCodex](https://github.com/lidge-jun/opencodex) models in Cursor through its custom OpenAI endpoint. The package runs a local gateway and keeps Cursor's custom model list in sync.
+Use active [OpenCodex](https://github.com/lidge-jun/opencodex) models in Cursor through its custom OpenAI endpoint. The package runs a local gateway, registers the endpoint in Cursor, and keeps Cursor's custom model list in sync.
 
 ## Requirements
 
 - macOS with Cursor installed at `/Applications/Cursor.app`
 - Node.js 22.5 or newer
-- OpenCodex installed, signed in, and running
-- An HTTPS hostname that forwards to `http://127.0.0.1:10101`
+- A domain using Cloudflare DNS, or another HTTPS reverse proxy
 
 Launch Cursor and sign in once before setup. Cursor creates the Safe Storage key that the installer uses to encrypt the gateway API key.
 
-## Set up an HTTPS endpoint
+## Setup
 
-Cursor's custom OpenAI endpoint must use HTTPS. Point a tunnel or reverse proxy at the local gateway on port `10101`.
+The commands below use `cursor-api.example.com`. Replace it with a hostname under your own Cloudflare-managed domain.
 
-This Cloudflare Tunnel config maps `cursor-api.example.com` to the gateway:
+### 1. Install OpenCodex
+
+[OpenCodex](https://github.com/lidge-jun/opencodex) requires Node.js 18 or newer and bundles its own Bun runtime. This bridge requires Node.js 22.5 or newer, so install Node.js 22 or later before continuing.
+
+Install OpenCodex without `sudo` from a user-owned Node.js installation:
+
+```bash
+npm install --global @bitkyc08/opencodex
+ocx init
+```
+
+The bridge service looks for `ocx` at `~/.local/bin/ocx` and `/opt/homebrew/bin/ocx`. If `command -v ocx` prints another path, link it into `~/.local/bin`:
+
+```bash
+mkdir -p ~/.local/bin
+if [[ "$(command -v ocx)" != "$HOME/.local/bin/ocx" ]]; then
+  ln -sf "$(command -v ocx)" ~/.local/bin/ocx
+fi
+```
+
+`ocx init` opens the interactive provider setup. You can also open the dashboard and add or sign in to a provider there:
+
+```bash
+ocx gui
+```
+
+OAuth-backed providers can also be connected from the terminal:
+
+```bash
+ocx login <provider>
+```
+
+Install OpenCodex as a login service, then check it:
+
+```bash
+ocx service install
+ocx service status
+```
+
+OpenCodex listens on `http://127.0.0.1:10100` by default. Confirm that its model endpoint responds:
+
+```bash
+curl http://127.0.0.1:10100/v1/models
+```
+
+If you configured OpenCodex with a service API token, include that token:
+
+```bash
+curl \
+  --header "Authorization: Bearer $(cat ~/.opencodex/service-api-token)" \
+  http://127.0.0.1:10100/v1/models
+```
+
+See the [OpenCodex documentation](https://lidge-jun.github.io/opencodex/) for provider-specific login and model configuration.
+
+### 2. Create a Cloudflare Tunnel
+
+Cursor requires an HTTPS custom OpenAI endpoint. A [Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/) can publish the bridge on HTTPS without opening an inbound port on your router.
+
+Add your domain to Cloudflare and point its nameservers to Cloudflare. Then install `cloudflared` on the Mac that runs OpenCodex and Cursor:
+
+```bash
+brew install cloudflared
+cloudflared tunnel login
+```
+
+The login command opens Cloudflare in your browser and writes `~/.cloudflared/cert.pem`. Create a [locally-managed named tunnel](https://developers.cloudflare.com/tunnel/advanced/local-management/create-local-tunnel/):
+
+```bash
+cloudflared tunnel create ocx-cursor
+cloudflared tunnel list
+```
+
+Copy the tunnel UUID printed by the command. It also creates a credentials file named `<TUNNEL_UUID>.json` under `~/.cloudflared`.
+
+Create `~/.cloudflared/config.yml`. Replace the UUID, macOS username, and hostname in this example:
 
 ```yaml
 # ~/.cloudflared/config.yml
-tunnel: YOUR_TUNNEL_ID
-credentials-file: /Users/YOU/.cloudflared/YOUR_TUNNEL_ID.json
+tunnel: YOUR_TUNNEL_UUID
+credentials-file: /Users/YOUR_MACOS_USERNAME/.cloudflared/YOUR_TUNNEL_UUID.json
 
 ingress:
   - hostname: cursor-api.example.com
@@ -31,18 +105,35 @@ ingress:
   - service: http_status:404
 ```
 
-Create the DNS route and run the tunnel:
+Create the DNS CNAME for the public hostname. The command adds the record to Cloudflare, so you do not need to create it separately in the dashboard:
 
 ```bash
-cloudflared tunnel route dns YOUR_TUNNEL_NAME cursor-api.example.com
-cloudflared tunnel run YOUR_TUNNEL_NAME
+cloudflared tunnel route dns ocx-cursor cursor-api.example.com
 ```
 
-The package does not install or manage the tunnel.
+Validate the configuration and start the tunnel in the foreground:
 
-## Install
+```bash
+cloudflared tunnel ingress validate
+cloudflared tunnel ingress rule https://cursor-api.example.com
+cloudflared tunnel run ocx-cursor
+```
 
-Quit Cursor, confirm that OpenCodex is running, then run:
+The public hostname returns `502 Bad Gateway` until the bridge is installed in the next step. Keep this terminal open while testing.
+
+For login-time startup on macOS, stop the foreground process and install the `cloudflared` launch agent:
+
+```bash
+cloudflared service install
+```
+
+Use `sudo cloudflared service install` only if you want a system launch daemon that starts at boot. That mode reads its configuration from `/etc/cloudflared`, not your home directory. See Cloudflare's [macOS service guide](https://developers.cloudflare.com/tunnel/advanced/local-management/as-a-service/macos/) for the required file locations.
+
+This package does not create, modify, or remove the Cloudflare Tunnel.
+
+### 3. Install the Cursor bridge
+
+Quit Cursor completely, confirm that OpenCodex is running, then initialize the bridge:
 
 ```bash
 npx ocx-cursor init \
@@ -63,7 +154,29 @@ The installer links `ocx-cursor` into `~/.local/bin`. Add that directory to `PAT
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Open Cursor after `init` finishes. Models with known reasoning controls show an effort value in the picker. Use `Shift+Command+/` to cycle it.
+Check the local gateway and public hostname before opening Cursor:
+
+```bash
+ocx-cursor status
+curl https://cursor-api.example.com/healthz
+```
+
+The status output should show `Service: running` and `Gateway: healthy`. The public health endpoint should return JSON with `"status":"ok"`.
+
+Open Cursor after both checks pass. Models with known reasoning controls show an effort value in the picker. Use `Shift+Command+/` to cycle it.
+
+## How requests are routed
+
+```text
+Cursor
+  -> https://cursor-api.example.com/v1
+  -> Cloudflare Tunnel
+  -> OpenCodex Cursor Bridge on 127.0.0.1:10101
+  -> OpenCodex on 127.0.0.1:10100
+  -> configured provider
+```
+
+The gateway API key is generated during `init` and stored in Cursor with macOS Safe Storage encryption. The bridge requires this bearer token on every `/v1/*` request. Keep the bridge bound to `127.0.0.1`; `cloudflared` can reach it without exposing port `10101` to the local network.
 
 ## Commands
 
@@ -108,6 +221,71 @@ The gateway accepts these routes:
 - `POST /v1/messages`
 
 The gateway requires its generated bearer token on each `/v1/*` request. It binds to loopback unless you change `OCX_CURSOR_HOST`.
+
+## Troubleshooting
+
+### The public hostname returns 502
+
+The tunnel is running, but it cannot reach the local bridge. Check the bridge and its logs:
+
+```bash
+ocx-cursor status
+tail -n 100 ~/.opencodex/cursor-bridge/service.error.log
+tail -n 100 ~/.opencodex/cursor-bridge/service.log
+```
+
+Confirm that the tunnel ingress points to `http://127.0.0.1:10101`, then restart the bridge if needed:
+
+```bash
+ocx-cursor install
+```
+
+### Cloudflare returns error 1016
+
+The DNS record exists, but no tunnel connector is online. Check the named tunnel and start it:
+
+```bash
+cloudflared tunnel info ocx-cursor
+cloudflared tunnel run ocx-cursor
+```
+
+If you installed the login service, inspect it with:
+
+```bash
+launchctl print "gui/$(id -u)/com.cloudflare.cloudflared"
+```
+
+### Cursor returns 401
+
+Run `init` again while Cursor is closed. It preserves the bridge key and writes the matching encrypted value back to Cursor:
+
+```bash
+npx ocx-cursor init \
+  --base-url https://cursor-api.example.com/v1
+```
+
+### Models or effort options are missing
+
+Cursor must be closed before its local model database can be changed. Quit Cursor and run:
+
+```bash
+ocx-cursor sync
+ocx-cursor status
+```
+
+If the status shows a pending sync, wait until every Cursor Helper process has exited. The service applies the queued catalog automatically.
+
+### OpenCodex models cannot be loaded
+
+Check OpenCodex first:
+
+```bash
+ocx status
+ocx models --json
+curl http://127.0.0.1:10100/v1/models
+```
+
+If `ocx models --json` works in your shell but fails in the bridge, check that `ocx` is available at `~/.local/bin/ocx` or `/opt/homebrew/bin/ocx`. The macOS LaunchAgent does not load your interactive shell profile.
 
 ## Development
 
