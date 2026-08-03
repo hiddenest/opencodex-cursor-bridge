@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { access, chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   cliLinkFile,
@@ -98,13 +98,18 @@ export async function prepareInstallSecret() {
   };
 }
 
+export function shouldCopyPackagePath(source, packageRoot = sourcePackageRoot) {
+  const segments = relative(packageRoot, source).split(sep);
+  return !segments.includes("node_modules") && !segments.includes(".git");
+}
+
 async function copyPackage() {
   if (resolve(sourcePackageRoot) === resolve(installedPackageRoot)) return;
   const temporary = `${installedPackageRoot}.tmp-${process.pid}`;
   await rm(temporary, { recursive: true, force: true });
   await cp(sourcePackageRoot, temporary, {
     recursive: true,
-    filter: (source) => !source.includes("/node_modules/") && !source.includes("/.git/"),
+    filter: (source) => shouldCopyPackagePath(source),
   });
   await rm(installedPackageRoot, { recursive: true, force: true });
   await rename(temporary, installedPackageRoot);
