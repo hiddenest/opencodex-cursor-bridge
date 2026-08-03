@@ -4,6 +4,8 @@ import { access, chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readlink,
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ensureCursorAppPatched } from "./cursor-patch.mjs";
+import { cursorIsRunning } from "./cursor-state.mjs";
 import {
   cliLinkFile,
   installRoot,
@@ -165,6 +167,7 @@ function launchAgent(nodePath) {
 export async function installService() {
   await mkdir(dirname(launchAgentFile), { recursive: true });
   const { legacyPlist, secretStatus } = await prepareInstallSecret();
+  const cursorPatches = cursorIsRunning() ? null : await ensureCursorAppPatched();
   await copyPackage();
   await installCliLink();
 
@@ -179,7 +182,7 @@ export async function installService() {
     await rm(disabled, { force: true });
     await rename(legacyPlist, disabled);
   }
-  return { installRoot, launchAgentFile, cliLinkFile, secretStatus };
+  return { installRoot, launchAgentFile, cliLinkFile, secretStatus, cursorPatches };
 }
 
 export async function updateService(options = {}) {

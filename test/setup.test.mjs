@@ -1,21 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeBaseUrl, testTunnel } from "../src/setup.mjs";
+import { normalizeBaseUrl, testEndpoint } from "../src/setup.mjs";
 
-test("normalizes a Cloudflare hostname to the Cursor OpenAI base URL", () => {
+test("normalizes local and remote endpoints to the Cursor OpenAI base URL", () => {
+  assert.equal(normalizeBaseUrl("http://127.0.0.1:10101"), "http://127.0.0.1:10101/v1");
+  assert.equal(normalizeBaseUrl("127.0.0.1:10101"), "http://127.0.0.1:10101/v1");
+  assert.equal(normalizeBaseUrl("localhost:10101/v1/"), "http://localhost:10101/v1");
   assert.equal(normalizeBaseUrl("https://cursor-api.example.com"), "https://cursor-api.example.com/v1");
   assert.equal(normalizeBaseUrl("cursor-api.example.com"), "https://cursor-api.example.com/v1");
   assert.equal(normalizeBaseUrl("https://cursor-api.example.com/v1/"), "https://cursor-api.example.com/v1");
 });
 
-test("rejects tunnel URLs that cannot route the gateway", () => {
+test("rejects unsafe or unsupported endpoint URLs", () => {
   assert.throws(() => normalizeBaseUrl("http://cursor-api.example.com"), /must use HTTPS/);
-  assert.throws(() => normalizeBaseUrl("https://cursor-api.example.com/proxy"), /hostname or end with \/v1/);
+  assert.throws(() => normalizeBaseUrl("https://cursor-api.example.com/proxy"), /origin or end with \/v1/);
 });
 
-test("checks public health and authenticated model discovery", async () => {
+test("checks local health and authenticated model discovery", async () => {
   const calls = [];
-  const result = await testTunnel("https://cursor-api.example.com/v1", "bridge-secret", {
+  const result = await testEndpoint("http://127.0.0.1:10101/v1", "bridge-secret", {
     fetchImpl: async (url, options) => {
       calls.push({ url, options });
       if (url.endsWith("/healthz")) {
@@ -26,14 +29,14 @@ test("checks public health and authenticated model discovery", async () => {
   });
 
   assert.equal(result.modelCount, 1);
-  assert.equal(calls[0].url, "https://cursor-api.example.com/healthz");
-  assert.equal(calls[1].url, "https://cursor-api.example.com/v1/models");
+  assert.equal(calls[0].url, "http://127.0.0.1:10101/healthz");
+  assert.equal(calls[1].url, "http://127.0.0.1:10101/v1/models");
   assert.equal(calls[1].options.headers.authorization, "Bearer bridge-secret");
 });
 
-test("rejects a tunnel pointing at another service", async () => {
+test("rejects an endpoint pointing at another service", async () => {
   await assert.rejects(
-    testTunnel("https://cursor-api.example.com/v1", "bridge-secret", {
+    testEndpoint("http://127.0.0.1:10101/v1", "bridge-secret", {
       fetchImpl: async () => Response.json({ status: "ok" }),
     }),
     /unexpected service/,
@@ -42,7 +45,7 @@ test("rejects a tunnel pointing at another service", async () => {
 
 test("retries while the bridge service starts", async () => {
   let healthAttempts = 0;
-  const result = await testTunnel("https://cursor-api.example.com/v1", "bridge-secret", {
+  const result = await testEndpoint("http://127.0.0.1:10101/v1", "bridge-secret", {
     healthAttempts: 2,
     retryDelayMs: 0,
     fetchImpl: async (url) => {

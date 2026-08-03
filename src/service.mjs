@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { buildActiveCatalog } from "./catalog.mjs";
+import { startCursorPatchMonitor } from "./cursor-patch.mjs";
 import {
   cursorIsRunning,
   readPendingCatalog,
@@ -58,6 +59,14 @@ export async function runService(options = {}) {
   }
 
   const server = startGateway({ secret, getCatalog: () => catalog, host: options.host, port: options.port });
+  const patchMonitor = startCursorPatchMonitor({
+    intervalMs: options.cursorPatchIntervalMs,
+    shouldPatch: () => !cursorIsRunning(),
+    onResult: (result) => {
+      if (result.status === "patched") process.stdout.write(`Patched Cursor app file ${result.file} (backup: ${result.backupPath})\n`);
+    },
+    onError: (error, file) => process.stderr.write(`Cursor patch failed for ${file}: ${error.message}\n`),
+  });
   const refreshTimer = setInterval(refresh, options.refreshIntervalMs || 15_000);
   const pendingTimer = setInterval(() => {
     if (cursorSyncPromise) return;
@@ -85,6 +94,7 @@ export async function runService(options = {}) {
     stopped = true;
     clearInterval(refreshTimer);
     clearInterval(pendingTimer);
+    patchMonitor.stop();
     server.close(() => process.exit(0));
   };
   process.on("SIGTERM", stop);

@@ -2,21 +2,20 @@
 
 import { readFile } from "node:fs/promises";
 import process from "node:process";
-import { createInterface } from "node:readline/promises";
-import { configureCursorOpenAI, storedCursorOpenAIBaseUrl } from "../src/cursor-config.mjs";
+import { configureCursorOpenAI } from "../src/cursor-config.mjs";
 import { cursorIsRunning } from "../src/cursor-state.mjs";
 import { installService, prepareInstallSecret, serviceStatus, uninstallService, updateService } from "../src/install.mjs";
-import { cursorOpenAIBaseUrl, pendingFile } from "../src/paths.mjs";
+import { cursorLocalBaseUrl, cursorOpenAIBaseUrl, pendingFile } from "../src/paths.mjs";
 import { runService } from "../src/service.mjs";
-import { normalizeBaseUrl, testTunnel } from "../src/setup.mjs";
+import { normalizeBaseUrl, testEndpoint } from "../src/setup.mjs";
 import { loadCatalogSnapshot, syncNow } from "../src/sync.mjs";
 import { findAvailableDebugPort, launchCursorForInjection, runRuntimeInjector } from "../src/runtime-injector.mjs";
 
 const usage = `OpenCodex Cursor Bridge
 
 Usage:
-  ocx-cursor init [--base-url <https-url>]
-                        Install the service, test the tunnel, configure Cursor,
+  ocx-cursor init [--base-url <url>]
+                        Install the service, test the endpoint, configure Cursor,
                         and sync models
   ocx-cursor install    Install and start the macOS companion service
   ocx-cursor update     Install the latest companion release and restart it
@@ -37,19 +36,7 @@ function argumentValue(name) {
 
 async function requestedBaseUrl() {
   const supplied = argumentValue("--base-url");
-  const fallback = cursorOpenAIBaseUrl || storedCursorOpenAIBaseUrl();
-  if (supplied) return normalizeBaseUrl(supplied);
-  if (!process.stdin.isTTY || !process.stdout.isTTY) return normalizeBaseUrl(fallback);
-
-  const prompt = fallback
-    ? `Cloudflare Tunnel URL [${fallback}]: `
-    : "Cloudflare Tunnel URL (for example, https://cursor-api.example.com): ";
-  const readline = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    return normalizeBaseUrl((await readline.question(prompt)).trim() || fallback);
-  } finally {
-    readline.close();
-  }
+  return normalizeBaseUrl(supplied || cursorOpenAIBaseUrl || cursorLocalBaseUrl);
 }
 
 async function pendingCount() {
@@ -70,6 +57,15 @@ function printSync(result) {
   }
 }
 
+function printCursorPatches(result) {
+  if (result.cursorPatches === null) {
+    process.stdout.write("Cursor app patches will be applied after Cursor quits.\n");
+    return;
+  }
+  const changed = result.cursorPatches.filter(({ status }) => status === "patched").length;
+  process.stdout.write(`Verified ${result.cursorPatches.length} Cursor app patches (${changed} changed).\n`);
+}
+
 async function main() {
   const command = process.argv[2] || "help";
   if (["help", "--help", "-h"].includes(command)) {
@@ -85,6 +81,7 @@ async function main() {
   if (command === "install") {
     const installed = await installService();
     process.stdout.write(`Installed ${installed.launchAgentFile} (API key ${installed.secretStatus}).\nCLI: ${installed.cliLinkFile}\n`);
+    printCursorPatches(installed);
     printSync(await syncNow());
     process.stdout.write("Endpoint: http://127.0.0.1:10101/v1\n");
     return;
@@ -97,14 +94,15 @@ async function main() {
     const prepared = await prepareInstallSecret();
     const installed = await installService();
     process.stdout.write(`Installed ${installed.launchAgentFile} (API key ${prepared.secretStatus}).\nCLI: ${installed.cliLinkFile}\n`);
-    process.stdout.write(`Testing Cloudflare Tunnel: ${new URL(baseUrl).origin}\n`);
-    let tunnel;
+    printCursorPatches(installed);
+    process.stdout.write(`Testing endpoint: ${new URL(baseUrl).origin}\n`);
+    let endpoint;
     try {
-      tunnel = await testTunnel(baseUrl, prepared.secret);
+      endpoint = await testEndpoint(baseUrl, prepared.secret);
     } catch (error) {
-      throw new Error(`${error.message}\nThe bridge service is running locally. Fix the tunnel and rerun ocx-cursor init.`);
+      throw new Error(`${error.message}\nThe bridge service is running locally. Fix the endpoint and rerun ocx-cursor init.`);
     }
-    process.stdout.write(`Tunnel is ready (${tunnel.modelCount} models reachable).\n`);
+    process.stdout.write(`Endpoint is ready (${endpoint.modelCount} models reachable).\n`);
     const configured = await configureCursorOpenAI({
       secret: prepared.secret,
       baseUrl,

@@ -36,6 +36,15 @@ function suppliedFast(variantText) {
     .find(([key]) => key === "fast")?.[1];
 }
 
+function disableStrictFunctionTools(tools) {
+  if (!Array.isArray(tools)) return;
+  for (const tool of tools) {
+    if (!isRecord(tool) || tool.type !== "function") continue;
+    const definition = isRecord(tool.function) ? tool.function : tool;
+    if (definition.strict === true) definition.strict = false;
+  }
+}
+
 export function rewriteModelAliasBody(body, catalog) {
   if (!body?.length) return body;
   let payload;
@@ -71,6 +80,7 @@ export function rewriteModelAliasBody(body, catalog) {
   if (catalogModel?.supportsFast && fast === "true") payload.service_tier = "priority";
   if (catalogModel?.supportsFast && fast === "false") delete payload.service_tier;
   delete payload.reasoningEffort;
+  disableStrictFunctionTools(payload.tools);
   return Buffer.from(JSON.stringify(payload));
 }
 

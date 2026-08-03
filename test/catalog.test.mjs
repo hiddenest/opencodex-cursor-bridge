@@ -41,6 +41,16 @@ test("normalizes only models returned by the active OpenCodex endpoint", () => {
       supportsFast: false,
     },
     {
+      alias: "opencodex/cursor/grok-4.5",
+      sourceId: "cursor/grok-4.5",
+      provider: "cursor",
+      contextWindow: undefined,
+      maxOutputTokens: undefined,
+      inputModalities: ["text", "image"],
+      reasoningEfforts: [],
+      supportsFast: false,
+    },
+    {
       alias: "opencodex/gpt-5.6-sol",
       sourceId: "gpt-5.6-sol",
       provider: "openai",

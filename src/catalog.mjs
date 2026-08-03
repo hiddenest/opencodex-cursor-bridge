@@ -80,7 +80,7 @@ export function normalizeActiveCatalog(configured, active, fastModelIds = new Se
   const models = new Map();
 
   for (const model of active) {
-    if (typeof model?.id !== "string" || model.owned_by === "opencodex" || model.id.startsWith("cursor/")) continue;
+    if (typeof model?.id !== "string" || model.owned_by === "opencodex") continue;
     const configuredModel = configuredById.get(model.id);
     const provider = model.id.includes("/") ? model.id.split("/", 1)[0] : String(model.owned_by || "openai").toLowerCase();
     const inputModalities = Array.isArray(configuredModel?.inputModalities)

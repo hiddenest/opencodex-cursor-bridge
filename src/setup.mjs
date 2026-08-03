@@ -1,24 +1,33 @@
 export function normalizeBaseUrl(value) {
   if (!value) {
-    throw new Error("Enter your Cloudflare Tunnel URL or pass --base-url https://your-domain.example/v1");
+    throw new Error("Enter an endpoint URL or pass --base-url http://127.0.0.1:10101/v1");
   }
 
-  const candidate = value.includes("://") ? value : `https://${value}`;
+  const trimmed = value.trim();
+  const loopbackWithoutScheme = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])(?::|\/|$)/i.test(trimmed);
+  const candidate = trimmed.includes("://")
+    ? trimmed
+    : `${loopbackWithoutScheme ? "http" : "https"}://${trimmed}`;
   let url;
   try {
     url = new URL(candidate);
   } catch {
-    throw new Error(`Invalid Cloudflare Tunnel URL: ${value}`);
+    throw new Error(`Invalid endpoint URL: ${value}`);
   }
 
-  if (url.protocol !== "https:") throw new Error("Cloudflare Tunnel URL must use HTTPS");
+  const isLoopback = url.hostname === "localhost"
+    || url.hostname === "[::1]"
+    || /^127(?:\.\d{1,3}){3}$/.test(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopback)) {
+    throw new Error("Endpoint URL must use HTTPS unless it points to localhost");
+  }
   if (url.username || url.password || url.search || url.hash) {
-    throw new Error("Cloudflare Tunnel URL cannot contain credentials, a query, or a fragment");
+    throw new Error("Endpoint URL cannot contain credentials, a query, or a fragment");
   }
 
   const pathname = url.pathname.replace(/\/+$/, "");
   if (pathname && pathname !== "/v1") {
-    throw new Error("Cloudflare Tunnel URL must be a hostname or end with /v1");
+    throw new Error("Endpoint URL must be an origin or end with /v1");
   }
   url.pathname = "/v1";
   return url.toString().replace(/\/$/, "");
@@ -43,7 +52,7 @@ async function checkedJson(fetchImpl, url, options, label) {
   }
 }
 
-export async function testTunnel(baseUrl, secret, options = {}) {
+export async function testEndpoint(baseUrl, secret, options = {}) {
   baseUrl = normalizeBaseUrl(baseUrl);
   const fetchImpl = options.fetchImpl || fetch;
   const origin = new URL(baseUrl).origin;
@@ -52,7 +61,7 @@ export async function testTunnel(baseUrl, secret, options = {}) {
   let healthError;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      health = await checkedJson(fetchImpl, `${origin}/healthz`, {}, "Tunnel health check");
+      health = await checkedJson(fetchImpl, `${origin}/healthz`, {}, "Endpoint health check");
       break;
     } catch (error) {
       healthError = error;
@@ -63,14 +72,14 @@ export async function testTunnel(baseUrl, secret, options = {}) {
   }
   if (!health) throw healthError;
   if (health?.service !== "opencodex-cursor-bridge" || health?.status !== "ok") {
-    throw new Error(`Tunnel health check reached an unexpected service at ${origin}/healthz`);
+    throw new Error(`Endpoint health check reached an unexpected service at ${origin}/healthz`);
   }
 
   const models = await checkedJson(fetchImpl, `${baseUrl}/models`, {
     headers: { authorization: `Bearer ${secret}` },
-  }, "Tunnel model check");
+  }, "Endpoint model check");
   if (!Array.isArray(models?.data)) {
-    throw new Error(`Tunnel model check returned an invalid catalog from ${baseUrl}/models`);
+    throw new Error(`Endpoint model check returned an invalid catalog from ${baseUrl}/models`);
   }
 
   return { health, modelCount: models.data.length };

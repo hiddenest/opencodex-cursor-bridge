@@ -5,6 +5,45 @@ import { effortLabels } from "./catalog.mjs";
 import { cursorDatabaseFile, installRoot, managedPrefix, pendingFile } from "./paths.mjs";
 
 const storageKey = "src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser";
+const displayWords = new Map([
+  ["claude", "Claude"],
+  ["codex", "Codex"],
+  ["composer", "Composer"],
+  ["deepseek", "DeepSeek"],
+  ["fable", "Fable"],
+  ["fast", "Fast"],
+  ["flash", "Flash"],
+  ["gpt", "GPT"],
+  ["grok", "Grok"],
+  ["hy3", "HY3"],
+  ["kimi", "Kimi"],
+  ["luna", "Luna"],
+  ["max", "Max"],
+  ["mimo", "MiMo"],
+  ["mini", "Mini"],
+  ["opus", "Opus"],
+  ["pro", "Pro"],
+  ["qwen", "Qwen"],
+  ["sol", "Sol"],
+  ["sonnet", "Sonnet"],
+  ["spark", "Spark"],
+  ["terra", "Terra"],
+]);
+
+function displayWord(value) {
+  const known = displayWords.get(value);
+  if (known) return known;
+  const attachedVersion = /^(qwen|kimi|gpt|claude|grok)(\d+(?:\.\d+)*)$/.exec(value);
+  if (attachedVersion) return `${displayWords.get(attachedVersion[1])} ${attachedVersion[2]}`;
+  if (/^v\d/i.test(value)) return `V${value.slice(1)}`;
+  if (/^k\d/i.test(value)) return `K${value.slice(1)}`;
+  if (/^\d/.test(value)) return value;
+  return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
+}
+
+export function displayNameFor(model) {
+  return model.sourceId.split("/").at(-1).split("-").map(displayWord).join(" ");
+}
 
 export function cursorIsRunning() {
   try {
@@ -62,13 +101,14 @@ function fastDefinition() {
 function modelVariants(model) {
   const parameterId = parameterIdFor(model);
   const selectedDefault = defaultEffort(model);
+  const modelDisplayName = displayNameFor(model);
   const efforts = model.reasoningEfforts.length > 0 ? model.reasoningEfforts : [null];
   const fastValues = model.supportsFast ? ["false", "true"] : [null];
   return efforts.flatMap((effort) => fastValues.map((fast) => {
     const labels = [effort ? effortLabels[effort] : null, fast === "true" ? "Fast" : null].filter(Boolean);
     const displayName = labels.length > 0
-      ? `${model.alias} <span style="color: var(--cursor-text-tertiary);">${labels.join(" ")}</span>`
-      : model.alias;
+      ? `${modelDisplayName} <span style="color: var(--cursor-text-tertiary);">${labels.join(" ")}</span>`
+      : modelDisplayName;
     const isDefault = (effort === null || effort === selectedDefault) && fast !== "true";
     const parameters = [
       ...(effort ? [{ id: parameterId, value: effort }] : []),
@@ -91,8 +131,10 @@ export function cursorModel(model) {
   const hasEffort = model.reasoningEfforts.length > 0;
   const hasVariants = hasEffort || model.supportsFast;
   const variants = hasVariants ? modelVariants(model) : [];
+  const displayName = displayNameFor(model);
   return {
     name: model.alias,
+    clientDisplayName: displayName,
     defaultOn: false,
     supportsAgent: true,
     degradationStatus: 0,
@@ -105,7 +147,7 @@ export function cursorModel(model) {
     supportsPlanMode: true,
     supportsSandboxing: true,
     isUserAdded: true,
-    inputboxShortModelName: model.alias,
+    inputboxShortModelName: displayName,
     idAliases: [],
     namedModelSectionIndex: 1,
     cloudAgentEffortModes: [],

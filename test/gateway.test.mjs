@@ -53,6 +53,47 @@ test("removes priority service tier when Fast is disabled", () => {
   assert.equal(rewritten.service_tier, undefined);
 });
 
+test("disables strict Chat Completions tools without changing their schemas", () => {
+  const parameters = {
+    type: "object",
+    properties: {
+      command: { type: "string" },
+      options: {
+        type: "object",
+        properties: { timeout: { type: "number" } },
+      },
+    },
+    required: ["command"],
+  };
+  const body = Buffer.from(JSON.stringify({
+    model: "opencodex/gpt-5.6-sol",
+    messages: [],
+    tools: [{
+      type: "function",
+      function: { name: "Shell", strict: true, parameters },
+    }],
+  }));
+
+  const rewritten = JSON.parse(rewriteModelAliasBody(body, [openai]));
+  assert.equal(rewritten.tools[0].function.strict, false);
+  assert.deepEqual(rewritten.tools[0].function.parameters, parameters);
+});
+
+test("disables strict Responses tools and leaves other tools unchanged", () => {
+  const body = Buffer.from(JSON.stringify({
+    model: "opencodex/gpt-5.6-sol",
+    input: [],
+    tools: [
+      { type: "function", name: "Shell", strict: true, parameters: { type: "object" } },
+      { type: "web_search" },
+    ],
+  }));
+
+  const rewritten = JSON.parse(rewriteModelAliasBody(body, [openai]));
+  assert.equal(rewritten.tools[0].strict, false);
+  assert.deepEqual(rewritten.tools[1], { type: "web_search" });
+});
+
 test("advertises Anthropic aliases through the messages protocol", () => {
   const result = enrichModelList([], [anthropic]);
   assert.deepEqual(result.data[0].api_types, ["anthropic_messages"]);

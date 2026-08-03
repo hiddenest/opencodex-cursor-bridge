@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyCatalogToState, cursorModel } from "../src/cursor-state.mjs";
+import { applyCatalogToState, cursorModel, displayNameFor } from "../src/cursor-state.mjs";
 
 const model = {
   alias: "opencodex/claude-sonnet-5",
@@ -13,6 +13,8 @@ const model = {
 
 test("builds Cursor variants for effort and Fast selectors", () => {
   const value = cursorModel(model);
+  assert.equal(value.clientDisplayName, "Claude Sonnet 5");
+  assert.equal(value.inputboxShortModelName, "Claude Sonnet 5");
   assert.equal(value.supportsThinking, true);
   assert.equal(value.parameterDefinitions[0].id, "effort");
   assert.equal(value.parameterDefinitions[0].isCycleableByHotkey, true);
@@ -26,6 +28,14 @@ test("builds Cursor variants for effort and Fast selectors", () => {
     "opencodex/claude-sonnet-5[effort=high,fast=false]",
     "opencodex/claude-sonnet-5[effort=high,fast=true]",
   ]);
+  assert.match(value.variants[4].displayName, /^Claude Sonnet 5 /);
+});
+
+test("formats provider model ids as human-readable names", () => {
+  assert.equal(displayNameFor({ sourceId: "openai/gpt-5.6-sol" }), "GPT 5.6 Sol");
+  assert.equal(displayNameFor({ sourceId: "anthropic/claude-opus-5" }), "Claude Opus 5");
+  assert.equal(displayNameFor({ sourceId: "opencode-go/deepseek-v4-flash" }), "DeepSeek V4 Flash");
+  assert.equal(displayNameFor({ sourceId: "opencode-go/qwen3.8-max" }), "Qwen 3.8 Max");
 });
 
 test("replaces only bridge-managed user models", () => {
