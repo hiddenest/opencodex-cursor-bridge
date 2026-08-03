@@ -1,6 +1,6 @@
 {
   "name": "ocx-cursor",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "OpenCodex companion service for Cursor custom models",
   "keywords": [
     "opencodex",
