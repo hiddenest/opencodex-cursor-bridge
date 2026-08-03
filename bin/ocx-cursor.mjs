@@ -2,10 +2,11 @@
 
 import { readFile } from "node:fs/promises";
 import process from "node:process";
-import { configureCursorOpenAI } from "../src/cursor-config.mjs";
+import { createInterface } from "node:readline/promises";
+import { configureCursorOpenAI, storedCursorOpenAIBaseUrl } from "../src/cursor-config.mjs";
 import { cursorIsRunning } from "../src/cursor-state.mjs";
 import { installService, prepareInstallSecret, serviceStatus, uninstallService, updateService } from "../src/install.mjs";
-import { cursorLocalBaseUrl, cursorOpenAIBaseUrl, pendingFile } from "../src/paths.mjs";
+import { cursorOpenAIBaseUrl, pendingFile } from "../src/paths.mjs";
 import { runService } from "../src/service.mjs";
 import { normalizeBaseUrl, testEndpoint } from "../src/setup.mjs";
 import { loadCatalogSnapshot, syncNow } from "../src/sync.mjs";
@@ -36,7 +37,19 @@ function argumentValue(name) {
 
 async function requestedBaseUrl() {
   const supplied = argumentValue("--base-url");
-  return normalizeBaseUrl(supplied || cursorOpenAIBaseUrl || cursorLocalBaseUrl);
+  const fallback = cursorOpenAIBaseUrl || storedCursorOpenAIBaseUrl();
+  if (supplied) return normalizeBaseUrl(supplied);
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return normalizeBaseUrl(fallback);
+
+  const prompt = fallback
+    ? `HTTPS endpoint [${fallback}]: `
+    : "HTTPS endpoint (for example, https://cursor-api.example.com): ";
+  const readline = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return normalizeBaseUrl((await readline.question(prompt)).trim() || fallback);
+  } finally {
+    readline.close();
+  }
 }
 
 async function pendingCount() {
@@ -63,7 +76,7 @@ function printCursorPatches(result) {
     return;
   }
   const changed = result.cursorPatches.filter(({ status }) => status === "patched").length;
-  process.stdout.write(`Verified ${result.cursorPatches.length} Cursor app patches (${changed} changed).\n`);
+  process.stdout.write(`Verified ${result.cursorPatches.length} Cursor metadata patches (${changed} changed).\n`);
 }
 
 async function main() {
@@ -83,7 +96,7 @@ async function main() {
     process.stdout.write(`Installed ${installed.launchAgentFile} (API key ${installed.secretStatus}).\nCLI: ${installed.cliLinkFile}\n`);
     printCursorPatches(installed);
     printSync(await syncNow());
-    process.stdout.write("Endpoint: http://127.0.0.1:10101/v1\n");
+    process.stdout.write("Local gateway: http://127.0.0.1:10101/v1\n");
     return;
   }
   if (command === "init") {
@@ -100,7 +113,7 @@ async function main() {
     try {
       endpoint = await testEndpoint(baseUrl, prepared.secret);
     } catch (error) {
-      throw new Error(`${error.message}\nThe bridge service is running locally. Fix the endpoint and rerun ocx-cursor init.`);
+      throw new Error(`${error.message}\nThe bridge service is running locally. Fix the HTTPS endpoint and rerun ocx-cursor init.`);
     }
     process.stdout.write(`Endpoint is ready (${endpoint.modelCount} models reachable).\n`);
     const configured = await configureCursorOpenAI({

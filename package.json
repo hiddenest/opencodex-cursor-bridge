@@ -1,7 +1,7 @@
 {
   "name": "ocx-cursor",
-  "version": "0.5.2",
-  "description": "OpenCodex companion service for Cursor custom models",
+  "version": "1.0.0",
+  "description": "Use OpenCodex models in Cursor through an authenticated HTTPS gateway",
   "keywords": [
     "opencodex",
     "cursor",

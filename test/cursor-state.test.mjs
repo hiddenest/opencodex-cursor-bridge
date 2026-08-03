@@ -31,12 +31,12 @@ test("builds Cursor variants for effort and Fast selectors", () => {
   assert.match(value.variants[4].displayName, /^Claude Sonnet 5 /);
 });
 
-test("formats provider model ids as human-readable names", () => {
+test("prefixes human-readable model names only for ambiguous providers", () => {
   assert.equal(displayNameFor({ sourceId: "openai/gpt-5.6-sol" }), "GPT 5.6 Sol");
   assert.equal(displayNameFor({ sourceId: "anthropic/claude-opus-5" }), "Claude Opus 5");
   assert.equal(displayNameFor({ sourceId: "cursor/kimi-k3", provider: "cursor" }), "Cursor Kimi K3");
-  assert.equal(displayNameFor({ sourceId: "opencode-go/deepseek-v4-flash" }), "DeepSeek V4 Flash");
-  assert.equal(displayNameFor({ sourceId: "opencode-go/qwen3.8-max" }), "Qwen 3.8 Max");
+  assert.equal(displayNameFor({ sourceId: "opencode-go/deepseek-v4-flash" }), "OpenCode Go DeepSeek V4 Flash");
+  assert.equal(displayNameFor({ sourceId: "opencode-go/qwen3.8-max" }), "OpenCode Go Qwen 3.8 Max");
 });
 
 test("replaces only bridge-managed user models", () => {

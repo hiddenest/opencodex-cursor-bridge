@@ -10,12 +10,14 @@ import {
   cursorLocalRuntimePatchMarker,
   cursorPatchMarker,
   ensureCursorAppPatched,
+  ensureCursorModelMetadataPatched,
   ensureCursorWorkbenchPatched,
   isCursorModelMetadataBundle,
   patchCursorBundleSource,
   patchCursorLocalModeSource,
   patchCursorLocalRuntimeSource,
   patchCursorWorkbenchSource,
+  startCursorModelMetadataPatchMonitor,
   startCursorPatchMonitor,
 } from "../src/cursor-patch.mjs";
 import { cursorGlassWorkbenchFile, cursorWorkbenchFile } from "../src/paths.mjs";
@@ -197,6 +199,21 @@ test("backs up and atomically patches a workbench file", async () => {
   assert.match(patched, /localMode:!0/);
 });
 
+test("patches model metadata without enabling local mode", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ocx-cursor-metadata-patch-"));
+  const file = join(directory, "workbench.js");
+  await writeFile(file, source);
+  const result = await ensureCursorModelMetadataPatched({
+    file,
+    backupDirectory: join(directory, "backups"),
+  });
+  const patched = await readFile(file, "utf8");
+  assert.equal(result.status, "patched");
+  assert.match(patched, /ocx-cursor-model-metadata/);
+  assert.match(patched, /localMode:!1/);
+  assert.doesNotMatch(patched, /localMode:!0/);
+});
+
 test("applies the complete Cursor patch set", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ocx-cursor-app-patch-"));
   const bundle = join(directory, "workbench.js");
@@ -231,6 +248,26 @@ test("monitors bundles and local runtimes after Cursor updates", async () => {
     await monitor.check();
     assert.match(await readFile(bundle, "utf8"), /localMode:!0/);
     assert.match(await readFile(runtime, "utf8"), /ocx-cursor-local-model-display/);
+  } finally {
+    monitor.stop();
+  }
+});
+
+test("monitors model metadata without enabling local mode", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ocx-cursor-metadata-monitor-"));
+  const file = join(directory, "workbench.js");
+  await writeFile(file, source);
+  const monitor = startCursorModelMetadataPatchMonitor({
+    bundleFiles: [file],
+    backupDirectory: join(directory, "backups"),
+    intervalMs: 60_000,
+  });
+  try {
+    await monitor.check();
+    const patched = await readFile(file, "utf8");
+    assert.match(patched, /ocx-cursor-model-metadata/);
+    assert.match(patched, /localMode:!1/);
+    assert.doesNotMatch(patched, /localMode:!0/);
   } finally {
     monitor.stop();
   }

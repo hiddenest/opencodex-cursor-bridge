@@ -17,6 +17,7 @@ export const cursorDatabaseFile = join(homedir(), "Library", "Application Suppor
 export const cursorAppOutDirectory = "/Applications/Cursor.app/Contents/Resources/app/out";
 export const cursorWorkbenchFile = join(cursorAppOutDirectory, "vs", "workbench", "workbench.desktop.main.js");
 export const cursorGlassWorkbenchFile = join(cursorAppOutDirectory, "vs", "workbench", "workbench.glass.main.js");
+export const cursorModelMetadataFiles = [cursorWorkbenchFile, cursorGlassWorkbenchFile];
 export const cursorLocalRuntimeFiles = [
   "/Applications/Cursor.app/Contents/Resources/app/extensions/cursor-local-agent-runtime/dist/main.js",
   "/Applications/Cursor.app/Contents/Resources/app/extensions/cursor-agent-exec/dist/main.js",
@@ -39,6 +40,5 @@ export const opencodexConfigFile = join(homedir(), ".opencodex", "config.json");
 export const opencodexServiceTokenFile = join(homedir(), ".opencodex", "service-api-token");
 export const gatewayPort = Number(process.env.OCX_CURSOR_PORT || "10101");
 export const gatewayHost = process.env.OCX_CURSOR_HOST || "127.0.0.1";
-export const cursorLocalBaseUrl = `http://127.0.0.1:${gatewayPort}/v1`;
 export const cursorOpenAIBaseUrl = process.env.OCX_CURSOR_BASE_URL || "";
 export const managedPrefix = "opencodex/";

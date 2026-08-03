@@ -1,6 +1,6 @@
 export function normalizeBaseUrl(value) {
   if (!value) {
-    throw new Error("Enter an endpoint URL or pass --base-url http://127.0.0.1:10101/v1");
+    throw new Error("Enter an HTTPS endpoint or pass --base-url https://cursor-api.example.com/v1");
   }
 
   const trimmed = value.trim();

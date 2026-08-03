@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { buildActiveCatalog } from "./catalog.mjs";
-import { startCursorPatchMonitor } from "./cursor-patch.mjs";
+import { startCursorModelMetadataPatchMonitor } from "./cursor-patch.mjs";
 import {
   cursorIsRunning,
   readPendingCatalog,
@@ -59,7 +59,7 @@ export async function runService(options = {}) {
   }
 
   const server = startGateway({ secret, getCatalog: () => catalog, host: options.host, port: options.port });
-  const patchMonitor = startCursorPatchMonitor({
+  const patchMonitor = startCursorModelMetadataPatchMonitor({
     intervalMs: options.cursorPatchIntervalMs,
     shouldPatch: () => !cursorIsRunning(),
     onResult: (result) => {

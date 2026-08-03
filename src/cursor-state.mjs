@@ -29,6 +29,11 @@ const displayWords = new Map([
   ["spark", "Spark"],
   ["terra", "Terra"],
 ]);
+const providerDisplayNames = new Map([
+  ["cursor", "Cursor"],
+  ["opencode-go", "OpenCode Go"],
+]);
+const unprefixedProviders = new Set(["anthropic", "openai"]);
 
 function displayWord(value) {
   const known = displayWords.get(value);
@@ -42,8 +47,11 @@ function displayWord(value) {
 }
 
 export function displayNameFor(model) {
+  const provider = model.provider || (model.sourceId.includes("/") ? model.sourceId.split("/", 1)[0] : "openai");
+  const providerDisplayName = providerDisplayNames.get(provider)
+    || provider.split(/[-_]/).map(displayWord).join(" ");
   const displayName = model.sourceId.split("/").at(-1).split("-").map(displayWord).join(" ");
-  return model.provider === "cursor" || model.sourceId.startsWith("cursor/") ? `Cursor ${displayName}` : displayName;
+  return unprefixedProviders.has(provider) ? displayName : `${providerDisplayName} ${displayName}`;
 }
 
 export function cursorIsRunning() {

@@ -4,7 +4,7 @@ import { access, chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readlink,
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ensureCursorAppPatched } from "./cursor-patch.mjs";
+import { ensureCursorModelMetadataPatched } from "./cursor-patch.mjs";
 import { cursorIsRunning } from "./cursor-state.mjs";
 import {
   cliLinkFile,
@@ -13,6 +13,7 @@ import {
   launchAgentFile,
   legacyLaunchAgentFile,
   legacyServiceLabel,
+  cursorModelMetadataFiles,
   secretFile,
   serviceLabel,
   stderrFile,
@@ -167,7 +168,12 @@ function launchAgent(nodePath) {
 export async function installService() {
   await mkdir(dirname(launchAgentFile), { recursive: true });
   const { legacyPlist, secretStatus } = await prepareInstallSecret();
-  const cursorPatches = cursorIsRunning() ? null : await ensureCursorAppPatched();
+  const cursorPatches = cursorIsRunning()
+    ? null
+    : await Promise.all(cursorModelMetadataFiles.map(async (file) => ({
+      file,
+      ...await ensureCursorModelMetadataPatched({ file }),
+    })));
   await copyPackage();
   await installCliLink();
 

@@ -5,6 +5,7 @@ import {
   cursorBundleFiles,
   cursorGlassWorkbenchFile,
   cursorLocalRuntimeFiles,
+  cursorModelMetadataFiles,
   cursorPatchBackupDirectory,
   cursorWorkbenchFile,
 } from "./paths.mjs";
@@ -229,6 +230,13 @@ export async function ensureCursorWorkbenchPatched(options = {}) {
   return await writePatchedFile(file, source, patched, backupDirectory);
 }
 
+export async function ensureCursorModelMetadataPatched(options = {}) {
+  const file = options.file || cursorWorkbenchFile;
+  const backupDirectory = options.backupDirectory || cursorPatchBackupDirectory;
+  const source = await readFile(file, "utf8");
+  return await writePatchedFile(file, source, patchCursorWorkbenchSource(source), backupDirectory);
+}
+
 export async function ensureCursorLocalRuntimesPatched(options = {}) {
   const files = options.files || cursorLocalRuntimeFiles;
   const backupDirectory = options.backupDirectory || cursorPatchBackupDirectory;
@@ -268,6 +276,12 @@ export async function ensureCursorAppPatched(options = {}) {
 }
 
 async function ensureCursorPatchFile(file, localRuntimeFiles, options) {
+  if (options.metadataOnly) {
+    return {
+      file,
+      ...await ensureCursorModelMetadataPatched({ ...options, file }),
+    };
+  }
   if (localRuntimeFiles.has(file)) {
     const [result] = await ensureCursorLocalRuntimesPatched({
       ...options,
@@ -283,6 +297,15 @@ async function ensureCursorPatchFile(file, localRuntimeFiles, options) {
       preserveCatalogMetadata: options.file ? true : isCursorModelMetadataBundle(file),
     }),
   };
+}
+
+export function startCursorModelMetadataPatchMonitor(options = {}) {
+  return startCursorPatchMonitor({
+    ...options,
+    bundleFiles: options.bundleFiles || cursorModelMetadataFiles,
+    localRuntimeFiles: [],
+    metadataOnly: true,
+  });
 }
 
 export function startCursorPatchMonitor(options = {}) {
