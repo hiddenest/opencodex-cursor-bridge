@@ -10,6 +10,7 @@ import { cursorOpenAIBaseUrl, pendingFile } from "../src/paths.mjs";
 import { runService } from "../src/service.mjs";
 import { normalizeBaseUrl, testTunnel } from "../src/setup.mjs";
 import { loadCatalogSnapshot, syncNow } from "../src/sync.mjs";
+import { findAvailableDebugPort, launchCursorForInjection, runRuntimeInjector } from "../src/runtime-injector.mjs";
 
 const usage = `OpenCodex Cursor Bridge
 
@@ -20,6 +21,10 @@ Usage:
   ocx-cursor install    Install and start the macOS companion service
   ocx-cursor update     Install the latest companion release and restart it
   ocx-cursor sync       Sync active OpenCodex models into Cursor
+  ocx-cursor launch [--port <port>]
+                        Launch Cursor with the experimental runtime model hook
+  ocx-cursor inject --port <port> [--reload]
+                        Attach the experimental hook to a debug-enabled Cursor
   ocx-cursor status     Show service and model-sync status
   ocx-cursor uninstall  Stop and remove the companion service
   ocx-cursor service    Run the service in the foreground (internal)
@@ -117,6 +122,30 @@ async function main() {
   }
   if (command === "sync") {
     printSync(await syncNow());
+    return;
+  }
+  if (command === "launch") {
+    if (cursorIsRunning()) throw new Error("Quit Cursor before running ocx-cursor launch");
+    const requestedPort = argumentValue("--port");
+    const port = requestedPort ? Number(requestedPort) : await findAvailableDebugPort();
+    const pid = launchCursorForInjection(port);
+    process.stdout.write(`Launched Cursor ${pid} with runtime injection on 127.0.0.1:${port}. Keep this command running.\n`);
+    await runRuntimeInjector({
+      port,
+      onInjection: (count) => process.stdout.write(`Injected ${count} OpenCodex model definitions.\n`),
+      onError: (error) => process.stderr.write(`Runtime injection failed: ${error.message}\n`),
+    });
+    return;
+  }
+  if (command === "inject") {
+    const port = Number(argumentValue("--port"));
+    process.stdout.write(`Attaching runtime injection to Cursor on 127.0.0.1:${port}. Keep this command running.\n`);
+    await runRuntimeInjector({
+      port,
+      reloadExisting: process.argv.includes("--reload"),
+      onInjection: (count) => process.stdout.write(`Injected ${count} OpenCodex model definitions.\n`),
+      onError: (error) => process.stderr.write(`Runtime injection failed: ${error.message}\n`),
+    });
     return;
   }
   if (command === "status") {

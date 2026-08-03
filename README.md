@@ -212,6 +212,7 @@ The gateway API key is generated during `init` and stored in Cursor with macOS S
 | `ocx-cursor install` | Reinstall or restart the LaunchAgent without changing Cursor's API settings. |
 | `ocx-cursor update` | Download the latest `ocx-cursor` release from npm, reinstall the service, and sync models. |
 | `ocx-cursor sync` | Refresh the active model catalog. The service queues the update while Cursor runs. |
+| `ocx-cursor launch` | Experimentally launch Cursor with live effort and Fast metadata injection. Keep the command running. |
 | `ocx-cursor status` | Show service health, model count, and pending sync state. |
 | `ocx-cursor uninstall` | Remove the LaunchAgent, command link, and bridge home directory. |
 
@@ -231,6 +232,16 @@ gpt-5.6-sol                -> opencodex/gpt-5.6-sol
 The catalog includes models returned by OpenCodex's active `/v1/models` endpoint. It excludes the OpenCodex `cursor/*` provider to avoid duplicating Cursor's own models.
 
 Cursor removes custom effort metadata from its database during startup. The LaunchAgent writes that metadata back after Cursor exits, once all Cursor Helper processes have stopped.
+
+### Experimental live model metadata
+
+`ocx-cursor launch` starts Cursor with a random loopback-only debugging port and keeps `opencodex/*` effort and Fast metadata in the live model catalog:
+
+```bash
+ocx-cursor launch
+```
+
+Keep the command running for the lifetime of Cursor. This does not modify `Cursor.app`, but it depends on Cursor's private workbench code and currently supports Cursor 3.14.7. The command stops with a compatibility error when it cannot find the expected catalog hook.
 
 ## Configuration
 
