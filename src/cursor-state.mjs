@@ -47,7 +47,8 @@ export function displayNameFor(model) {
 
 export function cursorIsRunning() {
   try {
-    execFileSync("pgrep", ["-f", "/Applications/Cursor.app/Contents/"], { stdio: "ignore" });
+    // Match the main binary only: orphaned crashpad helpers under Contents/ outlive the app.
+    execFileSync("pgrep", ["-f", "/Applications/Cursor.app/Contents/MacOS/Cursor"], { stdio: "ignore" });
     return true;
   } catch {
     return false;
