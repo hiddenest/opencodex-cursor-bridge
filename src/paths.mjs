@@ -1,0 +1,22 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+export const serviceLabel = "com.opencodex.cursor-bridge";
+export const legacyServiceLabel = "com.local.opencodex.cursor-gateway";
+export const installRoot = process.env.OCX_CURSOR_HOME || join(homedir(), ".opencodex", "cursor-bridge");
+export const installedPackageRoot = join(installRoot, "package");
+export const cliLinkFile = join(homedir(), ".local", "bin", "ocx-cursor");
+export const secretFile = join(installRoot, "secret");
+export const catalogFile = join(installRoot, "catalog.json");
+export const pendingFile = join(installRoot, "pending-sync.json");
+export const stdoutFile = join(installRoot, "service.log");
+export const stderrFile = join(installRoot, "service.error.log");
+export const launchAgentFile = join(homedir(), "Library", "LaunchAgents", `${serviceLabel}.plist`);
+export const legacyLaunchAgentFile = join(homedir(), "Library", "LaunchAgents", `${legacyServiceLabel}.plist`);
+export const cursorDatabaseFile = join(homedir(), "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb");
+export const opencodexConfigFile = join(homedir(), ".opencodex", "config.json");
+export const opencodexServiceTokenFile = join(homedir(), ".opencodex", "service-api-token");
+export const gatewayPort = Number(process.env.OCX_CURSOR_PORT || "10101");
+export const gatewayHost = process.env.OCX_CURSOR_HOST || "127.0.0.1";
+export const cursorOpenAIBaseUrl = process.env.OCX_CURSOR_BASE_URL || "";
+export const managedPrefix = "opencodex/";

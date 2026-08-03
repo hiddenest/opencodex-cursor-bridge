@@ -1,0 +1,39 @@
+{
+  "name": "opencodex-cursor-bridge",
+  "version": "0.1.0",
+  "description": "OpenCodex companion service for Cursor custom models",
+  "keywords": [
+    "opencodex",
+    "cursor",
+    "llm",
+    "proxy"
+  ],
+  "homepage": "https://github.com/hiddenest/opencodex-cursor-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/hiddenest/opencodex-cursor-bridge/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hiddenest/opencodex-cursor-bridge.git"
+  },
+  "author": "hiddenest",
+  "type": "module",
+  "bin": {
+    "ocx-cursor": "./bin/ocx-cursor.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check bin/ocx-cursor.mjs && find src -maxdepth 1 -name '*.mjs' -print0 | xargs -0 -n1 node --check",
+    "prepublishOnly": "npm test && npm run check"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "license": "MIT"
+}
