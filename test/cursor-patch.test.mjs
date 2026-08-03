@@ -5,6 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   cursorLocalModeEnabled,
+  cursorLocalRuntimeCapabilitiesPatchMarker,
+  legacyCursorLocalRuntimeCapabilitiesPatchMarker,
   cursorLocalRuntimePatchMarker,
   cursorPatchMarker,
   ensureCursorAppPatched,
@@ -19,19 +21,79 @@ import {
 import { cursorGlassWorkbenchFile, cursorWorkbenchFile } from "../src/paths.mjs";
 
 const source = 'const flags={localMode:!1};let c=a.models;const k=h(c);c=c.map(z=>XTt(z)),bp(()=>{this._reactiveStorageService.setApplicationUserPersistentStorage("availableDefaultModels2",c)})';
-const localRuntimeSource = 'function aFt(e,t){return new Ce.Gmx({modelId:e,displayModelId:e,displayName:null!=t?t:e,displayNameShort:null!=t?t:e,aliases:[]})}';
+const localRuntimeSource = [
+  'const runtimeExports={buildBottlerocketPickerModels:()=>M};',
+  'function parseCapabilities(e){const r=e.reasoning_effort;return Object.assign(Object.assign(Object.assign({},"boolean"==typeof e.supports_reasoning?{supports_reasoning:e.supports_reasoning}:{}),"boolean"==typeof e.supports_vision?{supports_vision:e.supports_vision}:{}),void 0!==r?{reasoning_effort:r}:{})}',
+  'class Manager{constructor(metadata){this.modelMetadataById=metadata;this.extendedCapabilitiesDetectedById=new Map}toPickerInput(e){var t;const n=this.modelMetadataById.get(e.modelId),r=null==n?void 0:n.capabilities;return{id:e.modelId,displayName:e.displayName||e.displayNameShort||e.displayModelId||e.modelId,supportsReasoning:"boolean"==typeof(null==r?void 0:r.supports_reasoning)?r.supports_reasoning:void 0,supportsVision:!0===(null==r?void 0:r.supports_vision),contextLength:void 0,maxOutputTokens:void 0,longContextThresholdTokens:void 0,extendedCapabilitiesDetected:null!==(t=this.extendedCapabilitiesDetectedById.get(e.modelId))&&void 0!==t?t:!0}}}',
+  'function providerInput(e,t){var n,r,o,s;const i=e.id.trim();if(!i)return;return{id:i,contextLength:void 0,maxOutputTokens:void 0,longContextThresholdTokens:void 0,supportsReasoning:!0===(null===(o=e.capabilities)||void 0===o?void 0:o.supports_reasoning),supportsVision:!0===(null===(s=e.capabilities)||void 0===s?void 0:s.supports_vision),extendedCapabilitiesDetected:t}}',
+  'const rewrite=function(e,t,n,r,o,s=!1){const i=function(e){var t;const n=null===(t=null==e?void 0:e.find(e=>["reasoning","effort","thought_level"].includes(e.id)))||void 0===t?void 0:t.value;return n}(n);return void 0!==i&&(e.reasoning_effort=i),e};',
+  'function M(e,t){var n;const r=null!==(n=null==t?void 0:t.defaultEffortTier)&&void 0!==n?n:"curated",o=new Set,s=[];for(const t of e){const e=t.id.trim();e&&!o.has(e)&&(o.add(e),s.push(D(Object.assign(Object.assign({},t),{id:e}),r)))}return s}',
+  'function D(e,t){var n,r;const o=function(e){return{values:["low","medium","high","xhigh"],defaultValue:"medium"}}(e),s=function(e){return}(e),i=(null===(n=e.displayName)||void 0===n?void 0:n.trim())||e.id,a=[...void 0!==o?[(c=o,new x.UNk({id:"reasoning",name:"Reasoning",parameterType:{enumParameter:{values:c.values.map(e=>({value:e}))}}}))]:[]];var l,c;return new x.MSu({name:e.id,parameterDefinitions:a,variants:F(o,s,i,t),supportsThinking:void 0!==o,supportsImages:null!==(r=e.supportsVision)&&void 0!==r&&r})}',
+  'function F(e,t,n,r){if(void 0===e&&void 0===t)return[];return e.values.map(t=>({parameterValues:[{id:"reasoning",value:t}],displayName:n+" "+t,displayNameOutsidePicker:n+" "+t,isMaxMode:!1,isDefaultNonMaxConfig:t===e.defaultValue,isDefaultMaxConfig:t===e.defaultValue}))}',
+  'function aFt(e,t){return new Ce.Gmx({modelId:e,displayModelId:e,displayName:null!=t?t:e,displayNameShort:null!=t?t:e,aliases:[]})}',
+].join("");
 
-test("formats OpenCodex display names in the local model runtime", () => {
+test("adds display names, Fast, and advertised reasoning efforts to the local runtime", () => {
   const first = patchCursorLocalRuntimeSource(localRuntimeSource);
   assert.equal(first.status, "patched");
   assert.match(first.source, new RegExp(cursorLocalRuntimePatchMarker.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(first.source, new RegExp(cursorLocalRuntimeCapabilitiesPatchMarker.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   const Model = class { constructor(value) { Object.assign(this, value); } };
-  const factory = new Function("Ce", `${first.source}; return aFt;`)({ Gmx: Model });
+  const runtime = new Function("Ce", "x", `${first.source}; return {factory:aFt,parseCapabilities,providerInput,Manager,build:M,rewrite};`)({ Gmx: Model }, { UNk: Model, MSu: Model });
+  const factory = runtime.factory;
   assert.equal(factory("opencodex/gpt-5.6-sol").displayName, "GPT 5.6 Sol");
   assert.equal(factory("opencodex/claude-opus-5").displayName, "Claude Opus 5");
   assert.equal(factory("native-model").displayName, "native-model");
   assert.equal(factory("opencodex/gpt-5.6-sol", "Custom").displayName, "Custom");
+
+  const capabilities = runtime.parseCapabilities({
+    supports_vision: true,
+    supports_fast: true,
+    supports_reasoning: true,
+    reasoning_effort: ["low", "medium", "high", "xhigh", "max"],
+  });
+  assert.equal(capabilities.supports_fast, true);
+  assert.deepEqual(runtime.providerInput({ id: "opencodex/gpt-5.6-sol", capabilities }, true), {
+    id: "opencodex/gpt-5.6-sol",
+    contextLength: undefined,
+    maxOutputTokens: undefined,
+    longContextThresholdTokens: undefined,
+    supportsReasoning: true,
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    supportsFast: true,
+    supportsVision: true,
+    extendedCapabilitiesDetected: true,
+  });
+  const input = new runtime.Manager(new Map([["opencodex/gpt-5.6-sol", { capabilities }]])).toPickerInput({
+    modelId: "opencodex/gpt-5.6-sol",
+    displayName: "GPT 5.6 Sol",
+  });
+  const [pickerModel] = runtime.build([input], { defaultEffortTier: "curated" });
+  assert.deepEqual(pickerModel.parameterDefinitions.map(({ id }) => id), ["reasoning", "fast"]);
+  assert.deepEqual(
+    pickerModel.parameterDefinitions[0].parameterType.enumParameter.values.map(({ value }) => value),
+    ["low", "medium", "high", "xhigh", "max"],
+  );
+  assert.equal(pickerModel.variants.length, 10);
+  assert.equal(pickerModel.variants.filter(({ parameterValues }) => parameterValues.some(({ id, value }) => id === "fast" && value === "true")).length, 5);
+
+  assert.equal(runtime.rewrite({}, "model", [{ id: "fast", value: "true" }], "chat", "route").service_tier, "priority");
+  assert.equal(runtime.rewrite({ service_tier: "priority" }, "model", [{ id: "fast", value: "false" }], "chat", "route").service_tier, undefined);
   assert.equal(patchCursorLocalRuntimeSource(first.source).status, "already-patched");
+});
+
+test("upgrades the v2 local runtime capabilities patch", () => {
+  const v3 = patchCursorLocalRuntimeSource(localRuntimeSource).source;
+  const providerMetadata = ',reasoningEfforts:Array.isArray(e.capabilities?.reasoning_effort)?e.capabilities.reasoning_effort:void 0,supportsFast:!0===e.capabilities?.supports_fast';
+  const v2 = v3
+    .replace(cursorLocalRuntimeCapabilitiesPatchMarker, legacyCursorLocalRuntimeCapabilitiesPatchMarker)
+    .replace(providerMetadata, "");
+  const upgraded = patchCursorLocalRuntimeSource(v2);
+  assert.equal(upgraded.status, "patched");
+  assert.match(upgraded.source, /reasoningEfforts:Array\.isArray\(e\.capabilities\?\.reasoning_effort\)/);
+  assert.match(upgraded.source, /supportsFast:!0===e\.capabilities\?\.supports_fast/);
+  assert.doesNotMatch(upgraded.source, /capabilities-v2/);
+  assert.equal(patchCursorLocalRuntimeSource(upgraded.source).status, "already-patched");
 });
 
 test("preserves model metadata in desktop and Glass workbench bundles", () => {
@@ -45,7 +107,8 @@ test("injects metadata preservation before Cursor stores its catalog", () => {
   assert.equal(result.status, "patched");
   assert.match(result.source, /ocx-cursor-model-metadata/);
   assert.match(result.source, /name\.startsWith\("opencodex\/"\)/);
-  assert.match(result.source, /parameterDefinitions:ocxCursorStored\?\.parameterDefinitions/);
+  assert.match(result.source, /parameterDefinitions:ocxCursorDefinitions/);
+  assert.match(result.source, /ocxCursorModel\.parameterDefinitions\.length>0/);
   assert.match(result.source, /clientDisplayName:ocxCursorDisplayName/);
   assert.ok(result.source.indexOf(cursorPatchMarker) < result.source.indexOf('setApplicationUserPersistentStorage("availableDefaultModels2"'));
 });
@@ -57,7 +120,7 @@ test("upgrades the legacy metadata hook", () => {
   );
   const result = patchCursorWorkbenchSource(legacy);
   assert.equal(result.status, "patched");
-  assert.match(result.source, /ocx-cursor-model-metadata-v3/);
+  assert.match(result.source, /ocx-cursor-model-metadata-v4/);
   assert.doesNotMatch(result.source, /ocx-cursor-model-metadata\*\//);
   assert.match(result.source, /clientDisplayName:ocxCursorDisplayName/);
 });
@@ -69,9 +132,22 @@ test("upgrades the v2 metadata hook", () => {
   );
   const result = patchCursorWorkbenchSource(v2);
   assert.equal(result.status, "patched");
-  assert.match(result.source, /ocx-cursor-model-metadata-v3/);
+  assert.match(result.source, /ocx-cursor-model-metadata-v4/);
   assert.doesNotMatch(result.source, /ocx-cursor-model-metadata-v2/);
   assert.match(result.source, /ocxCursorDisplayWords/);
+});
+
+test("upgrades the v3 metadata hook and prefers fresh picker metadata", () => {
+  const v3 = source.replace(
+    'c=c.map(z=>XTt(z)),',
+    'c=c.map(z=>XTt(z)),/*ocx-cursor-model-metadata-v3*/c=c.map(ocxCursorModel=>{const ocxCursorStored=(this._reactiveStorageService.applicationUserPersistentStorage.availableDefaultModels2??[]).find(ocxCursorCandidate=>ocxCursorCandidate?.name===ocxCursorModel.name);const ocxCursorVariants=(ocxCursorStored?.variants??ocxCursorModel.variants??[]);return{...ocxCursorModel,parameterDefinitions:ocxCursorStored?.parameterDefinitions??ocxCursorModel.parameterDefinitions??[],variants:ocxCursorVariants}}),',
+  );
+  const result = patchCursorWorkbenchSource(v3);
+  assert.equal(result.status, "patched");
+  assert.match(result.source, /ocx-cursor-model-metadata-v4/);
+  assert.doesNotMatch(result.source, /ocx-cursor-model-metadata-v3/);
+  assert.match(result.source, /ocxCursorModel\.parameterDefinitions\.length>0/);
+  assert.match(result.source, /ocxCursorModel\.variants\.length>0/);
 });
 
 test("matches minified variable renames and is idempotent", () => {
