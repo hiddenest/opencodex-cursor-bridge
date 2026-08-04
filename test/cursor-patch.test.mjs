@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  cursorByokRoutingPatchMarker,
   cursorLocalModeEnabled,
   cursorLocalRuntimeCapabilitiesPatchMarker,
   legacyCursorLocalRuntimeCapabilitiesPatchMarker,
@@ -14,6 +15,7 @@ import {
   ensureCursorWorkbenchPatched,
   isCursorModelMetadataBundle,
   patchCursorBundleSource,
+  patchCursorByokModelRoutingSource,
   patchCursorLocalModeSource,
   patchCursorLocalRuntimeSource,
   patchCursorWorkbenchSource,
@@ -22,7 +24,8 @@ import {
 } from "../src/cursor-patch.mjs";
 import { cursorGlassWorkbenchFile, cursorWorkbenchFile } from "../src/paths.mjs";
 
-const source = 'const flags={localMode:!1};let c=a.models;const k=h(c);c=c.map(z=>XTt(z)),bp(()=>{this._reactiveStorageService.setApplicationUserPersistentStorage("availableDefaultModels2",c)})';
+const byokSource = 'function MNg(e){return e.startsWith("claude-")}function PNg(e){return e.startsWith("gemini-")}function aVu(e,t){return MNg(e)?t.useClaudeKey?"anthropic":void 0:PNg(e)?t.useGoogleKey?"google":void 0:t.useOpenAIKey?"openai":void 0}';
+const source = `const flags={localMode:!1};let c=a.models;const k=h(c);c=c.map(z=>XTt(z)),bp(()=>{this._reactiveStorageService.setApplicationUserPersistentStorage("availableDefaultModels2",c)});${byokSource}`;
 const localRuntimeSource = [
   'const runtimeExports={buildBottlerocketPickerModels:()=>M};',
   'function parseCapabilities(e){const r=e.reasoning_effort;return Object.assign(Object.assign(Object.assign({},"boolean"==typeof e.supports_reasoning?{supports_reasoning:e.supports_reasoning}:{}),"boolean"==typeof e.supports_vision?{supports_vision:e.supports_vision}:{}),void 0!==r?{reasoning_effort:r}:{})}',
@@ -116,6 +119,66 @@ test("injects metadata preservation before Cursor stores its catalog", () => {
   assert.ok(result.source.indexOf(cursorPatchMarker) < result.source.indexOf('setApplicationUserPersistentStorage("availableDefaultModels2"'));
 });
 
+test("routes custom API keys only for OpenCodex and user-added models", () => {
+  const result = patchCursorByokModelRoutingSource(byokSource);
+  assert.equal(result.status, "patched");
+  assert.match(result.source, new RegExp(cursorByokRoutingPatchMarker.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  const route = new Function(`${result.source};return aVu`)();
+  const settings = {
+    useOpenAIKey: true,
+    aiSettings: { userAddedModels: ["custom/model"] },
+  };
+
+  assert.equal(route("composer-2.5", settings), undefined);
+  assert.equal(route("gpt-5.4", settings), undefined);
+  assert.equal(route("opencodex/cursor/composer-2.5-fast", settings), "openai");
+  assert.equal(route("custom/model", settings), "openai");
+  assert.equal(route("claude-sonnet-4-6", { ...settings, useClaudeKey: true }), "anthropic");
+  assert.equal(patchCursorByokModelRoutingSource(result.source).status, "already-patched");
+});
+
+test("restores stored OpenCodex models missing from Cursor's refreshed catalog", () => {
+  const executableSource = `function refresh(models){const plain=value=>value,batch=callback=>callback();let catalog=models;catalog=catalog.map(item=>plain(item)),batch(()=>{this._reactiveStorageService.setApplicationUserPersistentStorage("availableDefaultModels2",catalog)});return catalog}${byokSource}`;
+  const patched = patchCursorWorkbenchSource(executableSource);
+  const refresh = new Function(`${patched.source};return refresh`)();
+  const missingStoredModel = {
+    name: "opencodex/cursor/kimi-k3",
+    clientDisplayName: "Cursor Kimi K3",
+    parameterDefinitions: [{ id: "reasoning" }],
+  };
+  const existingStoredModel = {
+    name: "opencodex/claude-opus-5",
+    clientDisplayName: "Claude Opus 5",
+  };
+  let persisted;
+  const context = {
+    _reactiveStorageService: {
+      applicationUserPersistentStorage: {
+        availableDefaultModels2: [missingStoredModel, existingStoredModel, { name: "custom/unmanaged" }],
+      },
+      setApplicationUserPersistentStorage(key, value) {
+        assert.equal(key, "availableDefaultModels2");
+        persisted = value;
+      },
+    },
+  };
+
+  const result = refresh.call(context, [
+    { name: "cursor/native" },
+    { name: existingStoredModel.name, clientDisplayName: "Server name" },
+  ]);
+
+  assert.deepEqual(result.map(({ name }) => name), [
+    "cursor/native",
+    existingStoredModel.name,
+    missingStoredModel.name,
+  ]);
+  assert.equal(result[1].clientDisplayName, "Claude Opus 5");
+  assert.equal(result[2].clientDisplayName, "Cursor Kimi K3");
+  assert.deepEqual(persisted, result);
+  assert.equal(result.some(({ name }) => name === "custom/unmanaged"), false);
+});
+
 test("upgrades the legacy metadata hook", () => {
   const legacy = source.replace(
     'c=c.map(z=>XTt(z)),',
@@ -123,7 +186,7 @@ test("upgrades the legacy metadata hook", () => {
   );
   const result = patchCursorWorkbenchSource(legacy);
   assert.equal(result.status, "patched");
-  assert.match(result.source, /ocx-cursor-model-metadata-v5/);
+  assert.match(result.source, /ocx-cursor-model-metadata-v6/);
   assert.doesNotMatch(result.source, /ocx-cursor-model-metadata\*\//);
   assert.match(result.source, /clientDisplayName:ocxCursorDisplayName/);
 });
@@ -135,7 +198,7 @@ test("upgrades the v2 metadata hook", () => {
   );
   const result = patchCursorWorkbenchSource(v2);
   assert.equal(result.status, "patched");
-  assert.match(result.source, /ocx-cursor-model-metadata-v5/);
+  assert.match(result.source, /ocx-cursor-model-metadata-v6/);
   assert.doesNotMatch(result.source, /ocx-cursor-model-metadata-v2/);
   assert.match(result.source, /ocxCursorDisplayWords/);
 });
@@ -147,14 +210,24 @@ test("upgrades the v3 metadata hook and prefers fresh picker metadata", () => {
   );
   const result = patchCursorWorkbenchSource(v3);
   assert.equal(result.status, "patched");
-  assert.match(result.source, /ocx-cursor-model-metadata-v5/);
+  assert.match(result.source, /ocx-cursor-model-metadata-v6/);
   assert.doesNotMatch(result.source, /ocx-cursor-model-metadata-v3/);
   assert.match(result.source, /ocxCursorModel\.parameterDefinitions\.length>0/);
   assert.match(result.source, /ocxCursorModel\.variants\.length>0/);
 });
 
+test("upgrades the v5 metadata hook to restore missing models", () => {
+  const v5 = patchCursorWorkbenchSource(source).source.replace(cursorPatchMarker, "/*ocx-cursor-model-metadata-v5*/");
+  const result = patchCursorWorkbenchSource(v5);
+  assert.equal(result.status, "patched");
+  assert.match(result.source, /ocx-cursor-model-metadata-v6/);
+  assert.doesNotMatch(result.source, /ocx-cursor-model-metadata-v5/);
+  assert.match(result.source, /ocxCursorStoredModel/);
+  assert.equal(patchCursorWorkbenchSource(result.source).status, "already-patched");
+});
+
 test("matches minified variable renames and is idempotent", () => {
-  const renamed = 'let models=response.models;models=models.map(item=>plain(item)),batch(()=>{this._reactiveStorageService.setApplicationUserPersistentStorage("availableDefaultModels2",models)})';
+  const renamed = `let models=response.models;models=models.map(item=>plain(item)),batch(()=>{this._reactiveStorageService.setApplicationUserPersistentStorage("availableDefaultModels2",models)});${byokSource}`;
   const first = patchCursorWorkbenchSource(renamed);
   assert.equal(first.status, "patched");
   const second = patchCursorWorkbenchSource(first.source);
@@ -197,6 +270,24 @@ test("backs up and atomically patches a workbench file", async () => {
   const patched = await readFile(file, "utf8");
   assert.match(patched, /ocx-cursor-model-metadata/);
   assert.match(patched, /localMode:!0/);
+});
+
+test("serializes patches in a read-only app directory and restores its mode", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ocx-cursor-readonly-patch-"));
+  const appDirectory = join(directory, "app");
+  const files = [join(appDirectory, "desktop.js"), join(appDirectory, "glass.js")];
+  await mkdir(appDirectory);
+  await Promise.all(files.map((file) => writeFile(file, source)));
+  await chmod(appDirectory, 0o555);
+
+  const results = await Promise.all(files.map((file) => ensureCursorModelMetadataPatched({
+    file,
+    backupDirectory: join(directory, "backups"),
+  })));
+
+  assert.deepEqual(results.map(({ status }) => status), ["patched", "patched"]);
+  for (const file of files) assert.match(await readFile(file, "utf8"), /ocx-cursor-model-metadata-v6/);
+  assert.equal((await stat(appDirectory)).mode & 0o777, 0o555);
 });
 
 test("patches model metadata without enabling local mode", async () => {
@@ -295,7 +386,7 @@ test("defers bundle patching until the application is not running", async () => 
   }
 });
 
-test("retries a bundle after a transient filesystem error", async () => {
+test("monitor patches a bundle in a read-only app directory", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ocx-cursor-retry-"));
   const backupDirectory = await mkdtemp(join(tmpdir(), "ocx-cursor-retry-backups-"));
   const file = join(directory, "workbench.js");
@@ -310,11 +401,9 @@ test("retries a bundle after a transient filesystem error", async () => {
   });
   try {
     await monitor.check();
-    assert.equal(errors.length, 1);
-    assert.equal(await readFile(file, "utf8"), source);
-    await chmod(directory, 0o755);
-    await monitor.check();
+    assert.equal(errors.length, 0);
     assert.match(await readFile(file, "utf8"), /ocx-cursor-model-metadata/);
+    assert.equal((await stat(directory)).mode & 0o777, 0o555);
   } finally {
     monitor.stop();
     await chmod(directory, 0o755);

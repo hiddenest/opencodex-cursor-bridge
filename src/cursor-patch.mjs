@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { chmod, copyFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import {
   cursorBundleFiles,
   cursorGlassWorkbenchFile,
@@ -10,8 +10,9 @@ import {
   cursorWorkbenchFile,
 } from "./paths.mjs";
 
-export const cursorPatchMarker = "/*ocx-cursor-model-metadata-v5*/";
+export const cursorPatchMarker = "/*ocx-cursor-model-metadata-v6*/";
 export const legacyCursorPatchMarker = "/*ocx-cursor-model-metadata*/";
+export const cursorByokRoutingPatchMarker = "/*ocx-cursor-byok-model-routing-v1*/";
 export const cursorLocalModeDisabled = "localMode:!1";
 export const cursorLocalModeEnabled = "localMode:!0";
 export const cursorLocalRuntimePatchMarker = "/*ocx-cursor-local-model-display-v2*/";
@@ -24,7 +25,8 @@ export function isCursorModelMetadataBundle(file) {
 }
 
 const catalogNormalization = /(?<normalization>\b(?<catalog>[A-Za-z_$][\w$]*)=\k<catalog>\.map\((?<item>[A-Za-z_$][\w$]*)=>(?<plain>[A-Za-z_$][\w$]*)\(\k<item>\)\)),(?=(?<batch>[A-Za-z_$][\w$]*)\(\(\)=>\{this\._reactiveStorageService\.setApplicationUserPersistentStorage\("availableDefaultModels2",\k<catalog>\))/g;
-const previousCatalogInjection = /\/\*ocx-cursor-model-metadata(?:-v[234])?\*\/(?<catalog>[A-Za-z_$][\w$]*)=\k<catalog>\.map\(ocxCursorModel=>\{.*?\}\),(?=(?<batch>[A-Za-z_$][\w$]*)\(\(\)=>\{this\._reactiveStorageService\.setApplicationUserPersistentStorage\("availableDefaultModels2",\k<catalog>\))/g;
+const previousCatalogInjection = /\/\*ocx-cursor-model-metadata(?:-v[2-5])?\*\/(?<catalog>[A-Za-z_$][\w$]*)=[\s\S]*?,(?=(?<batch>[A-Za-z_$][\w$]*)\(\(\)=>\{this\._reactiveStorageService\.setApplicationUserPersistentStorage\("availableDefaultModels2",\k<catalog>\))/g;
+const byokModelRouting = /function (?<functionName>[A-Za-z_$][\w$]*)\((?<model>[A-Za-z_$][\w$]*),(?<settings>[A-Za-z_$][\w$]*)\)\{return (?<isClaude>[A-Za-z_$][\w$]*)\(\k<model>\)\?\k<settings>\.useClaudeKey\?"anthropic":void 0:(?<isGemini>[A-Za-z_$][\w$]*)\(\k<model>\)\?\k<settings>\.useGoogleKey\?"google":void 0:\k<settings>\.useOpenAIKey\?"openai":void 0\}/g;
 const localModelConstructor = /function (?<functionName>[A-Za-z_$][\w$]*)\(e,t\)\{return new (?<modelType>[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*)\(\{modelId:e,displayModelId:e,displayName:null!=t\?t:e,displayNameShort:null!=t\?t:e,aliases:\[\]\}\)\}/g;
 const localRuntimeVisionCapability = /"boolean"==typeof (?<object>[A-Za-z_$][\w$]*)\.supports_vision\?\{supports_vision:\k<object>\.supports_vision\}:\{\}\)/g;
 const localRuntimePickerInput = /toPickerInput\((?<model>[A-Za-z_$][\w$]*)\)\{var [A-Za-z_$][\w$]*;const [A-Za-z_$][\w$]*=this\.modelMetadataById\.get\(\k<model>\.modelId\),(?<capabilities>[A-Za-z_$][\w$]*)=.*?;return\{.*?supportsReasoning:[^,]+,supportsVision:/g;
@@ -32,6 +34,7 @@ const localRuntimeProviderPickerInput = /supportsReasoning:(?<reasoning>!0===\(n
 const localRuntimeRequestParameters = /function\((?<payload>[A-Za-z_$][\w$]*),(?<model>[A-Za-z_$][\w$]*),(?<parameters>[A-Za-z_$][\w$]*),(?<apiType>[A-Za-z_$][\w$]*),(?<route>[A-Za-z_$][\w$]*),(?<extended>[A-Za-z_$][\w$]*)=!1\)\{(?=const [A-Za-z_$][\w$]*=function\([A-Za-z_$][\w$]*\)\{var [A-Za-z_$][\w$]*;const [A-Za-z_$][\w$]*=.*?\["reasoning","effort","thought_level"\]\.includes)/g;
 const localRuntimeBuilderExport = /buildBottlerocketPickerModels:\(\)=>(?<builder>[A-Za-z_$][\w$]*)/g;
 const transientPatchErrorCodes = new Set(["EACCES", "EBUSY", "EPERM"]);
+const directoryPatchQueues = new Map();
 
 function replaceSingleMatch(source, pattern, replacement, label) {
   const matches = [...source.matchAll(pattern)];
@@ -41,13 +44,34 @@ function replaceSingleMatch(source, pattern, replacement, label) {
   return `${source.slice(0, match.index)}${value}${source.slice(match.index + match[0].length)}`;
 }
 
-function metadataInjection(catalog) {
-  return `${cursorPatchMarker}${catalog}=${catalog}.map(ocxCursorModel=>{if(!ocxCursorModel.name.startsWith("opencodex/"))return ocxCursorModel;const ocxCursorStored=(this._reactiveStorageService.applicationUserPersistentStorage.availableDefaultModels2??[]).find(ocxCursorCandidate=>ocxCursorCandidate?.name===ocxCursorModel.name);const ocxCursorDisplayWords={claude:"Claude",codex:"Codex",composer:"Composer",deepseek:"DeepSeek",fable:"Fable",fast:"Fast",flash:"Flash",gpt:"GPT",grok:"Grok",hy3:"HY3",kimi:"Kimi",luna:"Luna",max:"Max",mimo:"MiMo",mini:"Mini",opus:"Opus",pro:"Pro",qwen:"Qwen",sol:"Sol",sonnet:"Sonnet",spark:"Spark",terra:"Terra"};const ocxCursorDisplayName=ocxCursorStored?.clientDisplayName??((ocxCursorModel.name.startsWith("opencodex/cursor/")?"Cursor ":"")+ocxCursorModel.name.split("/").at(-1).split("-").map(ocxCursorWord=>{if(ocxCursorDisplayWords[ocxCursorWord])return ocxCursorDisplayWords[ocxCursorWord];const ocxCursorAttached=/^(qwen|kimi|gpt|claude|grok)(\\d+(?:\\.\\d+)*)$/.exec(ocxCursorWord);if(ocxCursorAttached)return ocxCursorDisplayWords[ocxCursorAttached[1]]+" "+ocxCursorAttached[2];if(/^v\\d/i.test(ocxCursorWord))return"V"+ocxCursorWord.slice(1);if(/^k\\d/i.test(ocxCursorWord))return"K"+ocxCursorWord.slice(1);if(/^\\d/.test(ocxCursorWord))return ocxCursorWord;return ocxCursorWord.slice(0,1).toUpperCase()+ocxCursorWord.slice(1)}).join(" "));const ocxCursorPrettyLabel=ocxCursorValue=>typeof ocxCursorValue==="string"?ocxCursorValue.split(ocxCursorModel.name).join(ocxCursorDisplayName):ocxCursorValue;const ocxCursorDefinitions=Array.isArray(ocxCursorModel.parameterDefinitions)&&ocxCursorModel.parameterDefinitions.length>0?ocxCursorModel.parameterDefinitions:ocxCursorStored?.parameterDefinitions??[];const ocxCursorVariantSource=Array.isArray(ocxCursorModel.variants)&&ocxCursorModel.variants.length>0?ocxCursorModel.variants:ocxCursorStored?.variants??[];const ocxCursorVariants=ocxCursorVariantSource.map(ocxCursorVariant=>({...ocxCursorVariant,displayName:ocxCursorPrettyLabel(ocxCursorVariant.displayName),displayNameOutsidePicker:ocxCursorPrettyLabel(ocxCursorVariant.displayNameOutsidePicker)}));const ocxCursorLegacySlugs=Array.isArray(ocxCursorModel.legacySlugs)&&ocxCursorModel.legacySlugs.length>0?ocxCursorModel.legacySlugs:ocxCursorStored?.legacySlugs??[];return{...ocxCursorModel,clientDisplayName:ocxCursorDisplayName,inputboxShortModelName:ocxCursorDisplayName,parameterDefinitions:ocxCursorDefinitions,variants:ocxCursorVariants,legacySlugs:ocxCursorLegacySlugs,supportsThinking:void 0!==ocxCursorModel.supportsThinking?ocxCursorModel.supportsThinking:ocxCursorStored?.supportsThinking}}),`;
+async function withWritableDirectory(file, callback) {
+  const directory = dirname(file);
+  const previous = directoryPatchQueues.get(directory) || Promise.resolve();
+  const current = previous.catch(() => {}).then(async () => {
+    const directoryMode = (await stat(directory)).mode & 0o777;
+    const restoreDirectoryMode = (directoryMode & 0o200) === 0;
+    if (restoreDirectoryMode) await chmod(directory, directoryMode | 0o200);
+    try {
+      return await callback();
+    } finally {
+      if (restoreDirectoryMode) await chmod(directory, directoryMode);
+    }
+  });
+  directoryPatchQueues.set(directory, current);
+  try {
+    return await current;
+  } finally {
+    if (directoryPatchQueues.get(directory) === current) directoryPatchQueues.delete(directory);
+  }
 }
 
-export function patchCursorWorkbenchSource(source) {
+function metadataInjection(catalog) {
+  return `${cursorPatchMarker}${catalog}=[...${catalog},...(this._reactiveStorageService.applicationUserPersistentStorage.availableDefaultModels2??[]).filter(ocxCursorStoredModel=>typeof ocxCursorStoredModel?.name==="string"&&ocxCursorStoredModel.name.startsWith("opencodex/")&&!${catalog}.some(ocxCursorFreshModel=>ocxCursorFreshModel?.name===ocxCursorStoredModel.name))].map(ocxCursorModel=>{if(!ocxCursorModel.name.startsWith("opencodex/"))return ocxCursorModel;const ocxCursorStored=(this._reactiveStorageService.applicationUserPersistentStorage.availableDefaultModels2??[]).find(ocxCursorCandidate=>ocxCursorCandidate?.name===ocxCursorModel.name);const ocxCursorDisplayWords={claude:"Claude",codex:"Codex",composer:"Composer",deepseek:"DeepSeek",fable:"Fable",fast:"Fast",flash:"Flash",gpt:"GPT",grok:"Grok",hy3:"HY3",kimi:"Kimi",luna:"Luna",max:"Max",mimo:"MiMo",mini:"Mini",opus:"Opus",pro:"Pro",qwen:"Qwen",sol:"Sol",sonnet:"Sonnet",spark:"Spark",terra:"Terra"};const ocxCursorDisplayName=ocxCursorStored?.clientDisplayName??((ocxCursorModel.name.startsWith("opencodex/cursor/")?"Cursor ":"")+ocxCursorModel.name.split("/").at(-1).split("-").map(ocxCursorWord=>{if(ocxCursorDisplayWords[ocxCursorWord])return ocxCursorDisplayWords[ocxCursorWord];const ocxCursorAttached=/^(qwen|kimi|gpt|claude|grok)(\\d+(?:\\.\\d+)*)$/.exec(ocxCursorWord);if(ocxCursorAttached)return ocxCursorDisplayWords[ocxCursorAttached[1]]+" "+ocxCursorAttached[2];if(/^v\\d/i.test(ocxCursorWord))return"V"+ocxCursorWord.slice(1);if(/^k\\d/i.test(ocxCursorWord))return"K"+ocxCursorWord.slice(1);if(/^\\d/.test(ocxCursorWord))return ocxCursorWord;return ocxCursorWord.slice(0,1).toUpperCase()+ocxCursorWord.slice(1)}).join(" "));const ocxCursorPrettyLabel=ocxCursorValue=>typeof ocxCursorValue==="string"?ocxCursorValue.split(ocxCursorModel.name).join(ocxCursorDisplayName):ocxCursorValue;const ocxCursorDefinitions=Array.isArray(ocxCursorModel.parameterDefinitions)&&ocxCursorModel.parameterDefinitions.length>0?ocxCursorModel.parameterDefinitions:ocxCursorStored?.parameterDefinitions??[];const ocxCursorVariantSource=Array.isArray(ocxCursorModel.variants)&&ocxCursorModel.variants.length>0?ocxCursorModel.variants:ocxCursorStored?.variants??[];const ocxCursorVariants=ocxCursorVariantSource.map(ocxCursorVariant=>({...ocxCursorVariant,displayName:ocxCursorPrettyLabel(ocxCursorVariant.displayName),displayNameOutsidePicker:ocxCursorPrettyLabel(ocxCursorVariant.displayNameOutsidePicker)}));const ocxCursorLegacySlugs=Array.isArray(ocxCursorModel.legacySlugs)&&ocxCursorModel.legacySlugs.length>0?ocxCursorModel.legacySlugs:ocxCursorStored?.legacySlugs??[];return{...ocxCursorModel,clientDisplayName:ocxCursorDisplayName,inputboxShortModelName:ocxCursorDisplayName,parameterDefinitions:ocxCursorDefinitions,variants:ocxCursorVariants,legacySlugs:ocxCursorLegacySlugs,supportsThinking:void 0!==ocxCursorModel.supportsThinking?ocxCursorModel.supportsThinking:ocxCursorStored?.supportsThinking}}),`;
+}
+
+function patchCursorModelMetadataSource(source) {
   if (source.includes(cursorPatchMarker)) return { status: "already-patched", source };
-  if (source.includes(legacyCursorPatchMarker) || source.includes("/*ocx-cursor-model-metadata-v2*/") || source.includes("/*ocx-cursor-model-metadata-v3*/") || source.includes("/*ocx-cursor-model-metadata-v4*/")) {
+  if (source.includes(legacyCursorPatchMarker) || source.includes("/*ocx-cursor-model-metadata-v2*/") || source.includes("/*ocx-cursor-model-metadata-v3*/") || source.includes("/*ocx-cursor-model-metadata-v4*/") || source.includes("/*ocx-cursor-model-metadata-v5*/")) {
     const matches = [...source.matchAll(previousCatalogInjection)];
     if (matches.length !== 1) {
       throw new Error(`Expected one legacy Cursor model metadata hook, found ${matches.length}`);
@@ -68,6 +92,24 @@ export function patchCursorWorkbenchSource(source) {
   const injection = `${normalization},${metadataInjection(catalog)}`;
   const patched = `${source.slice(0, match.index)}${injection}${source.slice(match.index + match[0].length)}`;
   return { status: "patched", source: patched };
+}
+
+export function patchCursorByokModelRoutingSource(source) {
+  if (source.includes(cursorByokRoutingPatchMarker)) return { status: "already-patched", source };
+  const patched = replaceSingleMatch(source, byokModelRouting, (match) => {
+    const { functionName, model, settings, isClaude, isGemini } = match.groups;
+    return `function ${functionName}(${model},${settings}){${cursorByokRoutingPatchMarker}return ${isClaude}(${model})?${settings}.useClaudeKey?"anthropic":void 0:${isGemini}(${model})?${settings}.useGoogleKey?"google":void 0:${settings}.useOpenAIKey&&(${model}.startsWith("opencodex/")||${settings}.aiSettings?.userAddedModels?.includes(${model}))?"openai":void 0}`;
+  }, "BYOK model routing hook");
+  return { status: "patched", source: patched };
+}
+
+export function patchCursorWorkbenchSource(source) {
+  const metadata = patchCursorModelMetadataSource(source);
+  const routing = patchCursorByokModelRoutingSource(metadata.source);
+  return {
+    status: metadata.status === "patched" || routing.status === "patched" ? "patched" : "already-patched",
+    source: routing.source,
+  };
 }
 
 export function patchCursorLocalModeSource(source) {
@@ -214,9 +256,11 @@ async function writePatchedFile(file, source, patched, backupDirectory) {
 
   const mode = (await stat(file)).mode & 0o777;
   const temporary = `${file}.ocx-cursor-${process.pid}`;
-  await writeFile(temporary, patched.source, { mode });
-  await chmod(temporary, mode);
-  await rename(temporary, file);
+  await withWritableDirectory(file, async () => {
+    await writeFile(temporary, patched.source, { mode });
+    await chmod(temporary, mode);
+    await rename(temporary, file);
+  });
   return { status: patched.status, signature: await cursorWorkbenchSignature(file), backupPath };
 }
 
