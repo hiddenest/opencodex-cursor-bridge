@@ -10,7 +10,7 @@ test("aliases Anthropic models without exposing the provider segment", () => {
   assert.equal(aliasFor("openai/gpt-5.6-sol"), "opencodex/openai/gpt-5.6-sol");
 });
 
-test("normalizes only models returned by the active OpenCodex endpoint", () => {
+test("normalizes active models except Cursor provider models", () => {
   const configured = [
     {
       provider: "anthropic",
@@ -38,16 +38,6 @@ test("normalizes only models returned by the active OpenCodex endpoint", () => {
       maxOutputTokens: undefined,
       inputModalities: ["text", "image"],
       reasoningEfforts: ["low", "high"],
-      supportsFast: false,
-    },
-    {
-      alias: "opencodex/cursor/grok-4.5",
-      sourceId: "cursor/grok-4.5",
-      provider: "cursor",
-      contextWindow: undefined,
-      maxOutputTokens: undefined,
-      inputModalities: ["text", "image"],
-      reasoningEfforts: [],
       supportsFast: false,
     },
     {
