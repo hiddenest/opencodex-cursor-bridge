@@ -1,6 +1,34 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyCatalogToState, cursorModel, displayNameFor } from "../src/cursor-state.mjs";
+import { applyCatalogToState, cursorModel, cursorUpdateIsRunning, displayNameFor } from "../src/cursor-state.mjs";
+
+test("detects Cursor's ShipIt updater process", () => {
+  let call;
+  assert.equal(cursorUpdateIsRunning((command, args, options) => {
+    call = { command, args, options };
+  }), true);
+  assert.deepEqual(call, {
+    command: "pgrep",
+    args: ["-f", "(com\\.todesktop\\.230313mzl4w4u92|co\\.anysphere\\.cursor[^ ]*)\\.ShipIt"],
+    options: { stdio: "ignore" },
+  });
+  const pattern = new RegExp(call.args[1]);
+  assert.match(
+    "/Applications/Cursor.app/Contents/Frameworks/Squirrel.framework/Resources/ShipIt com.todesktop.230313mzl4w4u92.ShipIt",
+    pattern,
+  );
+  assert.match(
+    "/Applications/Cursor.app/Contents/Frameworks/Squirrel.framework/Resources/ShipIt co.anysphere.cursor.stable.ShipIt",
+    pattern,
+  );
+  assert.doesNotMatch(
+    "/Applications/Granola.app/Contents/Frameworks/Squirrel.framework/Resources/ShipIt com.granola.app.ShipIt",
+    pattern,
+  );
+  assert.equal(cursorUpdateIsRunning(() => {
+    throw new Error("not running");
+  }), false);
+});
 
 const model = {
   alias: "opencodex/claude-sonnet-5",

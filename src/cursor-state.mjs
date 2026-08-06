@@ -64,6 +64,17 @@ export function cursorIsRunning() {
   }
 }
 
+export function cursorUpdateIsRunning(execute = execFileSync) {
+  try {
+    execute("pgrep", ["-f", "(com\\.todesktop\\.230313mzl4w4u92|co\\.anysphere\\.cursor[^ ]*)\\.ShipIt"], {
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function defaultEffort(model) {
   const modelId = model.sourceId.split("/").at(-1);
   if (/^(?:gpt|gemini)-/.test(modelId) && model.reasoningEfforts.includes("medium")) return "medium";

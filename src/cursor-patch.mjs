@@ -1,7 +1,9 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, copyFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import {
+  cursorAppPath,
   cursorBundleFiles,
   cursorGlassWorkbenchFile,
   cursorLocalRuntimeFiles,
@@ -35,6 +37,13 @@ const localRuntimeRequestParameters = /function\((?<payload>[A-Za-z_$][\w$]*),(?
 const localRuntimeBuilderExport = /buildBottlerocketPickerModels:\(\)=>(?<builder>[A-Za-z_$][\w$]*)/g;
 const transientPatchErrorCodes = new Set(["EACCES", "EBUSY", "EPERM"]);
 const directoryPatchQueues = new Map();
+
+export function clearCursorAppQuarantine(options = {}) {
+  const execute = options.execFileSync || execFileSync;
+  execute("/usr/bin/xattr", ["-dr", "com.apple.quarantine", options.appPath || cursorAppPath], {
+    stdio: "ignore",
+  });
+}
 
 function replaceSingleMatch(source, pattern, replacement, label) {
   const matches = [...source.matchAll(pattern)];
@@ -354,33 +363,80 @@ export function startCursorModelMetadataPatchMonitor(options = {}) {
 
 export function startCursorPatchMonitor(options = {}) {
   const intervalMs = options.intervalMs || 250;
+  const stableMs = options.stableMs || 0;
   const bundleFiles = options.file ? [options.file] : (options.bundleFiles || options.files || cursorBundleFiles);
   const runtimeFiles = options.file ? [] : (options.localRuntimeFiles || cursorLocalRuntimeFiles);
   const files = [...bundleFiles, ...runtimeFiles];
   const localRuntimeFiles = new Set(runtimeFiles);
   const lastSignatures = new Map();
+  let stableFingerprint = null;
+  let stableSince = 0;
   let patchPromise = null;
   let stopped = false;
 
-  const check = async () => {
-    if (stopped || patchPromise || options.shouldPatch?.() === false) return patchPromise;
-    patchPromise = Promise.all(files.map(async (file) => {
-      let signature;
+  const resetStability = () => {
+    stableFingerprint = null;
+    stableSince = 0;
+  };
+
+  const filesAreStable = async () => {
+    if (stableMs === 0) return true;
+    const signatures = await Promise.all(files.map(async (file) => {
       try {
-        signature = await cursorWorkbenchSignature(file);
+        return await cursorWorkbenchSignature(file);
       } catch {
-        return;
+        return null;
       }
-      if (signature === lastSignatures.get(file)) return;
-      try {
-        const result = await ensureCursorPatchFile(file, localRuntimeFiles, options);
-        lastSignatures.set(file, result.signature);
-        options.onResult?.(result);
-      } catch (error) {
-        if (!transientPatchErrorCodes.has(error.code)) lastSignatures.set(file, signature);
-        options.onError?.(error, file);
-      }
-    })).finally(() => {
+    }));
+    if (signatures.some((signature) => signature === null)) {
+      resetStability();
+      return false;
+    }
+    const fingerprint = signatures.join("|");
+    const now = (options.now || Date.now)();
+    if (fingerprint !== stableFingerprint) {
+      stableFingerprint = fingerprint;
+      stableSince = now;
+      return false;
+    }
+    return now - stableSince >= stableMs;
+  };
+
+  const check = async () => {
+    if (stopped || patchPromise) return patchPromise;
+    if (options.shouldPatch?.() === false) {
+      resetStability();
+      lastSignatures.clear();
+      return null;
+    }
+    patchPromise = (async () => {
+      if (!await filesAreStable()) return [];
+      let retryAfterStabilityDelay = false;
+      const results = await Promise.all(files.map(async (file) => {
+        let signature;
+        try {
+          signature = await cursorWorkbenchSignature(file);
+        } catch {
+          return;
+        }
+        if (signature === lastSignatures.get(file)) return;
+        try {
+          const result = await ensureCursorPatchFile(file, localRuntimeFiles, options);
+          lastSignatures.set(file, result.signature);
+          options.onResult?.(result);
+          return result;
+        } catch (error) {
+          if (transientPatchErrorCodes.has(error.code)) retryAfterStabilityDelay = true;
+          else lastSignatures.set(file, signature);
+          options.onError?.(error, file);
+        }
+      }));
+      if (retryAfterStabilityDelay) resetStability();
+      const patched = results.filter((result) => result?.status === "patched");
+      if (patched.length > 0) await options.onPatched?.(patched);
+      if (results.length === files.length && results.every(Boolean)) await options.onReady?.(results);
+      return results;
+    })().finally(() => {
       patchPromise = null;
     });
     return patchPromise;

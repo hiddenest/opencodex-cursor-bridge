@@ -25,16 +25,20 @@ export async function saveCatalogSnapshot(catalog) {
 }
 
 export async function applyOrQueueCatalog(catalog, options = {}) {
-  if (cursorIsRunning()) {
-    await writePendingCatalog(catalog);
+  const running = options.cursorRunning ?? cursorIsRunning();
+  const queueCatalog = options.writePendingCatalog || writePendingCatalog;
+  if (options.defer || running) {
+    await queueCatalog(catalog);
     return {
       status: "queued",
       modelCount: catalog.length,
       effortCount: catalog.filter(({ reasoningEfforts }) => reasoningEfforts.length > 0).length,
     };
   }
-  const result = await syncCursorDatabase(catalog, options);
-  await clearPendingCatalog();
+  const syncDatabase = options.syncCursorDatabase || syncCursorDatabase;
+  const clearPending = options.clearPendingCatalog || clearPendingCatalog;
+  const result = await syncDatabase(catalog, options);
+  await clearPending();
   return { status: "synced", ...result };
 }
 

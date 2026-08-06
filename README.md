@@ -6,7 +6,7 @@
 Use your active [OpenCodex](https://github.com/lidge-jun/opencodex) models in Cursor through an authenticated HTTPS endpoint on your Mac.
 
 > [!WARNING]
-> The installer edits two private workbench files inside `Cursor.app`. This invalidates Cursor's vendor signature. Cursor may report a corrupt installation. The bridge saves the original files under `~/.opencodex/cursor-bridge/cursor-app-backups`. Reinstall Cursor to restore a signed app.
+> The installer edits two private workbench files inside `Cursor.app`. This invalidates Cursor's vendor signature, so the bridge removes the app's quarantine attribute after each patch to prevent macOS from reporting a corrupt installation. The bridge saves the original files under `~/.opencodex/cursor-bridge/cursor-app-backups`. Reinstall Cursor to restore a vendor-signed app.
 
 ## Requirements
 
@@ -125,14 +125,18 @@ The patch keeps the model metadata that Cursor would discard. It leaves Cursor's
 
 The login service refreshes the catalog every 15 seconds. It waits for Cursor to quit before writing the state database or reapplying a patch after a Cursor update.
 
+On macOS, the patch monitor pauses while Cursor's `ShipIt` updater is running. After Cursor and the updater stop, it waits until all patch targets remain unchanged for five seconds before writing them. This prevents the bridge from modifying `Cursor.app` while an in-app update is replacing it.
+
 ## Commands
 
 | Command | Action |
 | --- | --- |
 | `ocx-cursor init --base-url URL` | Install the service, test the HTTPS endpoint, configure Cursor, and sync models. |
 | `ocx-cursor install` | Reinstall the service and check the two metadata patches. |
+| `ocx-cursor stop` | Stop the service without removing its configuration or state. |
+| `ocx-cursor start` | Start the installed service. |
 | `ocx-cursor update` | Install the current npm release and restart the service. |
-| `ocx-cursor sync` | Read the active OpenCodex catalog and update Cursor. |
+| `ocx-cursor sync` | With Cursor closed, pause the service, verify the app patch, sync the active catalog, and restart the service. |
 | `ocx-cursor status` | Print service, gateway, catalog, and pending-sync status. |
 | `ocx-cursor uninstall` | Remove the service, command link, and bridge state. |
 
@@ -159,7 +163,7 @@ The bridge reads `~/.opencodex/service-api-token` when OpenCodex uses service au
 | Cursor returns 401 | Quit Cursor and rerun `npx ocx-cursor init --base-url https://YOUR_HOST/v1`. |
 | The hostname returns 502 | Run `ocx-cursor status`, then check that the tunnel points to port `10101`. |
 | Cloudflare returns 1016 | Run `cloudflared tunnel info ocx-cursor` and check the service. |
-| Models or controls are missing | Quit Cursor and run `ocx-cursor sync`. |
+| Models or controls are missing | Quit Cursor and run `ocx-cursor sync`. It repairs the foreground app patch before writing model metadata. |
 | A Cursor update removed the patch | Quit Cursor and run `ocx-cursor install`. |
 
 Read the service logs:

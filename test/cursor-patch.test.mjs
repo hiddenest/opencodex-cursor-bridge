@@ -10,6 +10,7 @@ import {
   legacyCursorLocalRuntimeCapabilitiesPatchMarker,
   cursorLocalRuntimePatchMarker,
   cursorPatchMarker,
+  clearCursorAppQuarantine,
   ensureCursorAppPatched,
   ensureCursorModelMetadataPatched,
   ensureCursorWorkbenchPatched,
@@ -37,6 +38,21 @@ const localRuntimeSource = [
   'function F(e,t,n,r){if(void 0===e&&void 0===t)return[];return e.values.map(t=>({parameterValues:[{id:"reasoning",value:t}],displayName:n+" "+t,displayNameOutsidePicker:n+" "+t,isMaxMode:!1,isDefaultNonMaxConfig:t===e.defaultValue,isDefaultMaxConfig:t===e.defaultValue}))}',
   'function aFt(e,t){return new Ce.Gmx({modelId:e,displayModelId:e,displayName:null!=t?t:e,displayNameShort:null!=t?t:e,aliases:[]})}',
 ].join("");
+
+test("removes only Cursor's quarantine attribute", () => {
+  let call;
+  clearCursorAppQuarantine({
+    appPath: "/test/Cursor.app",
+    execFileSync(command, args, options) {
+      call = { command, args, options };
+    },
+  });
+  assert.deepEqual(call, {
+    command: "/usr/bin/xattr",
+    args: ["-dr", "com.apple.quarantine", "/test/Cursor.app"],
+    options: { stdio: "ignore" },
+  });
+});
 
 test("adds display names, Fast, and advertised reasoning efforts to the local runtime", () => {
   const first = patchCursorLocalRuntimeSource(localRuntimeSource);
@@ -364,6 +380,31 @@ test("monitors model metadata without enabling local mode", async () => {
   }
 });
 
+test("finalizes each successful patch batch once", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ocx-cursor-finalize-monitor-"));
+  const files = [join(directory, "desktop.js"), join(directory, "glass.js")];
+  await Promise.all(files.map((file) => writeFile(file, source)));
+  const batches = [];
+  const ready = [];
+  const monitor = startCursorModelMetadataPatchMonitor({
+    bundleFiles: files,
+    backupDirectory: join(directory, "backups"),
+    intervalMs: 60_000,
+    onPatched: (results) => batches.push(results),
+    onReady: (results) => ready.push(results),
+  });
+  try {
+    await monitor.check();
+    await monitor.check();
+    assert.equal(batches.length, 1);
+    assert.deepEqual(batches[0].map(({ file }) => file).sort(), files.sort());
+    assert.equal(ready.length, 1);
+    assert.deepEqual(ready[0].map(({ file }) => file).sort(), files.sort());
+  } finally {
+    monitor.stop();
+  }
+});
+
 test("defers bundle patching until the application is not running", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ocx-cursor-monitor-"));
   const file = join(directory, "workbench.js");
@@ -379,6 +420,47 @@ test("defers bundle patching until the application is not running", async () => 
     await monitor.check();
     assert.equal(await readFile(file, "utf8"), source);
     shouldPatch = true;
+    await monitor.check();
+    assert.match(await readFile(file, "utf8"), /ocx-cursor-model-metadata/);
+  } finally {
+    monitor.stop();
+  }
+});
+
+test("waits for stable files and resets the delay while updates are running", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ocx-cursor-update-pause-"));
+  const file = join(directory, "workbench.js");
+  let now = 0;
+  let updateRunning = true;
+  await writeFile(file, source);
+  const monitor = startCursorPatchMonitor({
+    file,
+    backupDirectory: join(directory, "backups"),
+    intervalMs: 60_000,
+    stableMs: 5_000,
+    now: () => now,
+    shouldPatch: () => !updateRunning,
+  });
+  try {
+    await monitor.check();
+    updateRunning = false;
+    await monitor.check();
+    now = 4_999;
+    await monitor.check();
+    assert.equal(await readFile(file, "utf8"), source);
+
+    updateRunning = true;
+    await monitor.check();
+    updateRunning = false;
+    now = 5_000;
+    await monitor.check();
+    now = 9_000;
+    await writeFile(file, `${source}\n`);
+    await monitor.check();
+    now = 13_999;
+    await monitor.check();
+    assert.equal(await readFile(file, "utf8"), `${source}\n`);
+    now = 14_000;
     await monitor.check();
     assert.match(await readFile(file, "utf8"), /ocx-cursor-model-metadata/);
   } finally {

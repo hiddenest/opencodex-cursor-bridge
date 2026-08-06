@@ -4,10 +4,11 @@ import { access, chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readlink,
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ensureCursorModelMetadataPatched } from "./cursor-patch.mjs";
+import { clearCursorAppQuarantine, ensureCursorModelMetadataPatched } from "./cursor-patch.mjs";
 import { cursorIsRunning } from "./cursor-state.mjs";
 import {
   cliLinkFile,
+  cursorAppPath,
   installRoot,
   installedPackageRoot,
   launchAgentFile,
@@ -39,16 +40,16 @@ function commandOutput(command, args) {
   }
 }
 
-function bootout(label) {
+function bootout(label, execute = execFileSync) {
   try {
-    execFileSync("launchctl", ["bootout", `${launchDomain}/${label}`], { stdio: "ignore" });
+    execute("launchctl", ["bootout", `${launchDomain}/${label}`], { stdio: "ignore" });
   } catch {}
 }
 
-async function bootstrap(plist) {
+async function bootstrap(plist, execute = execFileSync) {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
-      execFileSync("launchctl", ["bootstrap", launchDomain, plist], { stdio: "ignore" });
+      execute("launchctl", ["bootstrap", launchDomain, plist], { stdio: "ignore" });
       return;
     } catch (error) {
       if (attempt === 4) throw error;
@@ -168,27 +169,50 @@ function launchAgent(nodePath) {
 export async function installService() {
   await mkdir(dirname(launchAgentFile), { recursive: true });
   const { legacyPlist, secretStatus } = await prepareInstallSecret();
-  const cursorPatches = cursorIsRunning()
-    ? null
-    : await Promise.all(cursorModelMetadataFiles.map(async (file) => ({
-      file,
-      ...await ensureCursorModelMetadataPatched({ file }),
-    })));
-  await copyPackage();
-  await installCliLink();
-
-  const nodePath = (await exists("/opt/homebrew/bin/node")) ? "/opt/homebrew/bin/node" : process.execPath;
-  await writeFile(launchAgentFile, launchAgent(nodePath), { mode: 0o644 });
   bootout(serviceLabel);
   bootout(legacyServiceLabel);
-  await bootstrap(launchAgentFile);
+  let cursorInstalled;
+  let cursorPatches;
+  try {
+    cursorInstalled = await exists(cursorAppPath);
+    cursorPatches = cursorIsRunning() || !cursorInstalled
+      ? null
+      : await repairCursorMetadataPatch();
+    await copyPackage();
+    await installCliLink();
+
+    const nodePath = (await exists("/opt/homebrew/bin/node")) ? "/opt/homebrew/bin/node" : process.execPath;
+    await writeFile(launchAgentFile, launchAgent(nodePath), { mode: 0o644 });
+    await bootstrap(launchAgentFile);
+  } catch (error) {
+    if (await exists(launchAgentFile)) await bootstrap(launchAgentFile).catch(() => {});
+    throw error;
+  }
 
   if (legacyPlist.startsWith(dirname(legacyLaunchAgentFile)) && await exists(legacyPlist)) {
     const disabled = `${legacyPlist}.disabled-by-${serviceLabel}`;
     await rm(disabled, { force: true });
     await rename(legacyPlist, disabled);
   }
-  return { installRoot, launchAgentFile, cliLinkFile, secretStatus, cursorPatches };
+  return { installRoot, launchAgentFile, cliLinkFile, secretStatus, cursorInstalled, cursorPatches };
+}
+
+export async function repairCursorMetadataPatch(options = {}) {
+  const running = options.cursorRunning ?? cursorIsRunning();
+  if (running) throw new Error("Quit Cursor before repairing its metadata patch");
+  const appPath = options.cursorAppPath || cursorAppPath;
+  const pathExists = options.exists || exists;
+  if (!await pathExists(appPath)) throw new Error("Cursor is not installed in /Applications");
+
+  const patchFile = options.ensureCursorModelMetadataPatched || ensureCursorModelMetadataPatched;
+  const files = options.files || cursorModelMetadataFiles;
+  const patches = await Promise.all(files.map(async (file) => ({
+    file,
+    ...await patchFile({ file }),
+  })));
+  const clearQuarantine = options.clearCursorAppQuarantine || clearCursorAppQuarantine;
+  clearQuarantine({ appPath });
+  return patches;
 }
 
 export async function updateService(options = {}) {
@@ -207,6 +231,21 @@ export async function updateService(options = {}) {
   } finally {
     if (ownsTemporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true });
   }
+}
+
+export function stopService(options = {}) {
+  bootout(serviceLabel, options.execFileSync || execFileSync);
+}
+
+export async function startService(options = {}) {
+  const plist = options.launchAgentFile || launchAgentFile;
+  const pathExists = options.exists || exists;
+  if (!await pathExists(plist)) {
+    throw new Error("OpenCodex Cursor Bridge is not installed; run ocx-cursor install first");
+  }
+  const execute = options.execFileSync || execFileSync;
+  bootout(serviceLabel, execute);
+  await bootstrap(plist, execute);
 }
 
 export async function uninstallService() {

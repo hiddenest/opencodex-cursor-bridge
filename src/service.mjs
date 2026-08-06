@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { buildActiveCatalog } from "./catalog.mjs";
-import { startCursorModelMetadataPatchMonitor } from "./cursor-patch.mjs";
+import { clearCursorAppQuarantine, startCursorModelMetadataPatchMonitor } from "./cursor-patch.mjs";
 import {
   cursorIsRunning,
+  cursorUpdateIsRunning,
   readPendingCatalog,
 } from "./cursor-state.mjs";
 import { startGateway } from "./gateway.mjs";
@@ -27,6 +28,7 @@ export async function runService(options = {}) {
   let refreshPromise = null;
   let cursorSyncPromise = null;
   let wasCursorRunning = cursorIsRunning();
+  let cursorPatchReady = false;
   let stopped = false;
 
   const refresh = async () => {
@@ -37,7 +39,10 @@ export async function runService(options = {}) {
         if (JSON.stringify(next) === JSON.stringify(catalog)) return;
         catalog = next;
         await saveCatalogSnapshot(catalog);
-        const result = await applyOrQueueCatalog(catalog, { createBackup: false });
+        const result = await applyOrQueueCatalog(catalog, {
+          createBackup: false,
+          defer: !cursorPatchReady,
+        });
         process.stdout.write(`${result.status === "queued" ? "Queued" : "Synced"} ${result.modelCount} Cursor models\n`);
       } catch (error) {
         process.stderr.write(`Catalog refresh failed: ${error.message}\n`);
@@ -61,19 +66,36 @@ export async function runService(options = {}) {
   const server = startGateway({ secret, getCatalog: () => catalog, host: options.host, port: options.port });
   const patchMonitor = startCursorModelMetadataPatchMonitor({
     intervalMs: options.cursorPatchIntervalMs,
-    shouldPatch: () => !cursorIsRunning(),
+    stableMs: options.cursorPatchStableMs ?? 5_000,
+    shouldPatch: () => !cursorIsRunning() && !cursorUpdateIsRunning(),
     onResult: (result) => {
       if (result.status === "patched") process.stdout.write(`Patched Cursor app file ${result.file} (backup: ${result.backupPath})\n`);
     },
-    onError: (error, file) => process.stderr.write(`Cursor patch failed for ${file}: ${error.message}\n`),
+    onPatched: () => {
+      try {
+        clearCursorAppQuarantine();
+      } catch (error) {
+        process.stderr.write(`Cursor quarantine removal failed: ${error.message}\n`);
+      }
+    },
+    onReady: () => {
+      cursorPatchReady = true;
+      wasCursorRunning = true;
+    },
+    onError: (error, file) => {
+      cursorPatchReady = false;
+      process.stderr.write(`Cursor patch failed for ${file}: ${error.message}\n`);
+    },
   });
   const refreshTimer = setInterval(refresh, options.refreshIntervalMs || 15_000);
   const pendingTimer = setInterval(() => {
     if (cursorSyncPromise) return;
     if (cursorIsRunning()) {
       wasCursorRunning = true;
+      cursorPatchReady = false;
       return;
     }
+    if (!cursorPatchReady) return;
     cursorSyncPromise = (async () => {
       const pending = await readPendingCatalog();
       const next = pending || (wasCursorRunning ? catalog : null);

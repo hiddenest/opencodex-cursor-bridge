@@ -5,7 +5,7 @@ import process from "node:process";
 import { createInterface } from "node:readline/promises";
 import { configureCursorOpenAI, storedCursorOpenAIBaseUrl } from "../src/cursor-config.mjs";
 import { cursorIsRunning } from "../src/cursor-state.mjs";
-import { installService, prepareInstallSecret, serviceStatus, uninstallService, updateService } from "../src/install.mjs";
+import { installService, prepareInstallSecret, repairCursorMetadataPatch, serviceStatus, startService, stopService, uninstallService, updateService } from "../src/install.mjs";
 import { cursorOpenAIBaseUrl, pendingFile } from "../src/paths.mjs";
 import { runService } from "../src/service.mjs";
 import { normalizeBaseUrl, testEndpoint } from "../src/setup.mjs";
@@ -19,6 +19,8 @@ Usage:
                         Install the service, test the endpoint, configure Cursor,
                         and sync models
   ocx-cursor install    Install and start the macOS companion service
+  ocx-cursor stop       Stop the companion service without removing its state
+  ocx-cursor start      Start the installed companion service
   ocx-cursor update     Install the latest companion release and restart it
   ocx-cursor sync       Sync active OpenCodex models into Cursor
   ocx-cursor launch [--port <port>]
@@ -71,6 +73,10 @@ function printSync(result) {
 }
 
 function printCursorPatches(result) {
+  if (!result.cursorInstalled) {
+    process.stdout.write("Cursor is not installed; app patches will be applied after it is installed.\n");
+    return;
+  }
   if (result.cursorPatches === null) {
     process.stdout.write("Cursor app patches will be applied after Cursor quits.\n");
     return;
@@ -131,7 +137,29 @@ async function main() {
     await updateService();
     return;
   }
+  if (command === "stop") {
+    stopService();
+    process.stdout.write("Stopped OpenCodex Cursor Bridge.\n");
+    return;
+  }
+  if (command === "start") {
+    await startService();
+    process.stdout.write("Started OpenCodex Cursor Bridge.\n");
+    return;
+  }
   if (command === "sync") {
+    if (!cursorIsRunning()) {
+      stopService();
+      try {
+        const cursorPatches = await repairCursorMetadataPatch();
+        const changed = cursorPatches.filter(({ status }) => status === "patched").length;
+        process.stdout.write(`Verified ${cursorPatches.length} Cursor metadata patches (${changed} changed).\n`);
+        printSync(await syncNow());
+      } finally {
+        await startService();
+      }
+      return;
+    }
     printSync(await syncNow());
     return;
   }
