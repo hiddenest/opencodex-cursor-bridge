@@ -78,7 +78,7 @@ test("fails to start before the service is installed", async () => {
   );
 });
 
-test("repairs every Cursor metadata file before clearing quarantine", async () => {
+test("repairs every Cursor metadata file before finalizing the app", async () => {
   const calls = [];
   const patches = await repairCursorMetadataPatch({
     cursorRunning: false,
@@ -89,14 +89,14 @@ test("repairs every Cursor metadata file before clearing quarantine", async () =
       calls.push(`patch:${file}`);
       return { status: "patched", backupPath: `${file}.bak` };
     },
-    clearCursorAppQuarantine({ appPath }) {
-      calls.push(`quarantine:${appPath}`);
+    finalizeCursorAppPatch({ appPath }) {
+      calls.push(`finalize:${appPath}`);
     },
   });
   assert.deepEqual(calls, [
     "patch:/test/desktop.js",
     "patch:/test/glass.js",
-    "quarantine:/test/Cursor.app",
+    "finalize:/test/Cursor.app",
   ]);
   assert.deepEqual(patches.map(({ file, status }) => ({ file, status })), [
     { file: "/test/desktop.js", status: "patched" },

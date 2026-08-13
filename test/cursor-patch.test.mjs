@@ -14,6 +14,7 @@ import {
   ensureCursorAppPatched,
   ensureCursorModelMetadataPatched,
   ensureCursorWorkbenchPatched,
+  finalizeCursorAppPatch,
   isCursorModelMetadataBundle,
   patchCursorBundleSource,
   patchCursorByokModelRoutingSource,
@@ -52,6 +53,33 @@ test("removes only Cursor's quarantine attribute", () => {
     args: ["-dr", "com.apple.quarantine", "/test/Cursor.app"],
     options: { stdio: "ignore" },
   });
+});
+
+test("ad-hoc signs a patched Cursor app before clearing quarantine", () => {
+  const calls = [];
+  finalizeCursorAppPatch({
+    appPath: "/test/Cursor.app",
+    execFileSync(command, args, options) {
+      calls.push({ command, args, options });
+    },
+  });
+  assert.deepEqual(calls, [
+    {
+      command: "/usr/bin/codesign",
+      args: ["--force", "--sign", "-", "/test/Cursor.app"],
+      options: { stdio: "ignore" },
+    },
+    {
+      command: "/usr/bin/codesign",
+      args: ["--verify", "--deep", "--strict", "/test/Cursor.app"],
+      options: { stdio: "ignore" },
+    },
+    {
+      command: "/usr/bin/xattr",
+      args: ["-dr", "com.apple.quarantine", "/test/Cursor.app"],
+      options: { stdio: "ignore" },
+    },
+  ]);
 });
 
 test("adds display names, Fast, and advertised reasoning efforts to the local runtime", () => {
@@ -400,6 +428,61 @@ test("finalizes each successful patch batch once", async () => {
     assert.deepEqual(batches[0].map(({ file }) => file).sort(), files.sort());
     assert.equal(ready.length, 1);
     assert.deepEqual(ready[0].map(({ file }) => file).sort(), files.sort());
+  } finally {
+    monitor.stop();
+  }
+});
+
+test("retries a patch batch when app finalization fails", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ocx-cursor-finalize-retry-"));
+  const file = join(directory, "workbench.js");
+  const errors = [];
+  let attempts = 0;
+  await writeFile(file, source);
+  const monitor = startCursorModelMetadataPatchMonitor({
+    bundleFiles: [file],
+    backupDirectory: join(directory, "backups"),
+    intervalMs: 60_000,
+    onReady: () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("codesign failed");
+    },
+    onError: (error) => errors.push(error.message),
+  });
+  try {
+    await monitor.check();
+    await monitor.check();
+    assert.equal(attempts, 2);
+    assert.deepEqual(errors, ["codesign failed"]);
+  } finally {
+    monitor.stop();
+  }
+});
+
+test("finalizes a partial patch batch without marking it ready", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ocx-cursor-partial-patch-"));
+  const good = join(directory, "desktop.js");
+  const incompatible = join(directory, "glass.js");
+  const finalized = [];
+  const ready = [];
+  const errors = [];
+  await writeFile(good, source);
+  await writeFile(incompatible, "const incompatibleCursorBuild=true");
+  const monitor = startCursorModelMetadataPatchMonitor({
+    bundleFiles: [good, incompatible],
+    backupDirectory: join(directory, "backups"),
+    intervalMs: 60_000,
+    onPatched: (results) => finalized.push(results),
+    onReady: (results) => ready.push(results),
+    onError: (error, file) => errors.push({ message: error.message, file }),
+  });
+  try {
+    await monitor.check();
+    assert.equal(finalized.length, 1);
+    assert.deepEqual(finalized[0].map(({ file }) => file), [good]);
+    assert.equal(ready.length, 0);
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].file, incompatible);
   } finally {
     monitor.stop();
   }

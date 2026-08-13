@@ -4,7 +4,7 @@ import { access, chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readlink,
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { clearCursorAppQuarantine, ensureCursorModelMetadataPatched } from "./cursor-patch.mjs";
+import { ensureCursorModelMetadataPatched, finalizeCursorAppPatch } from "./cursor-patch.mjs";
 import { cursorIsRunning } from "./cursor-state.mjs";
 import {
   cliLinkFile,
@@ -210,8 +210,8 @@ export async function repairCursorMetadataPatch(options = {}) {
     file,
     ...await patchFile({ file }),
   })));
-  const clearQuarantine = options.clearCursorAppQuarantine || clearCursorAppQuarantine;
-  clearQuarantine({ appPath });
+  const finalizePatch = options.finalizeCursorAppPatch || finalizeCursorAppPatch;
+  finalizePatch({ appPath });
   return patches;
 }
 

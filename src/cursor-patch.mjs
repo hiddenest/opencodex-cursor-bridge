@@ -45,6 +45,14 @@ export function clearCursorAppQuarantine(options = {}) {
   });
 }
 
+export function finalizeCursorAppPatch(options = {}) {
+  const execute = options.execFileSync || execFileSync;
+  const appPath = options.appPath || cursorAppPath;
+  execute("/usr/bin/codesign", ["--force", "--sign", "-", appPath], { stdio: "ignore" });
+  execute("/usr/bin/codesign", ["--verify", "--deep", "--strict", appPath], { stdio: "ignore" });
+  clearCursorAppQuarantine({ ...options, appPath, execFileSync: execute });
+}
+
 function replaceSingleMatch(source, pattern, replacement, label) {
   const matches = [...source.matchAll(pattern)];
   if (matches.length !== 1) throw new Error(`Expected one Cursor ${label}, found ${matches.length}`);
@@ -433,8 +441,14 @@ export function startCursorPatchMonitor(options = {}) {
       }));
       if (retryAfterStabilityDelay) resetStability();
       const patched = results.filter((result) => result?.status === "patched");
-      if (patched.length > 0) await options.onPatched?.(patched);
-      if (results.length === files.length && results.every(Boolean)) await options.onReady?.(results);
+      try {
+        if (patched.length > 0) await options.onPatched?.(patched);
+        if (results.length === files.length && results.every(Boolean)) await options.onReady?.(results);
+      } catch (error) {
+        resetStability();
+        lastSignatures.clear();
+        options.onError?.(error, options.appPath || cursorAppPath);
+      }
       return results;
     })().finally(() => {
       patchPromise = null;

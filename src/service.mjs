@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { buildActiveCatalog } from "./catalog.mjs";
-import { clearCursorAppQuarantine, startCursorModelMetadataPatchMonitor } from "./cursor-patch.mjs";
+import { finalizeCursorAppPatch, startCursorModelMetadataPatchMonitor } from "./cursor-patch.mjs";
 import {
   cursorIsRunning,
   cursorUpdateIsRunning,
@@ -72,13 +72,10 @@ export async function runService(options = {}) {
       if (result.status === "patched") process.stdout.write(`Patched Cursor app file ${result.file} (backup: ${result.backupPath})\n`);
     },
     onPatched: () => {
-      try {
-        clearCursorAppQuarantine();
-      } catch (error) {
-        process.stderr.write(`Cursor quarantine removal failed: ${error.message}\n`);
-      }
+      finalizeCursorAppPatch();
     },
-    onReady: () => {
+    onReady: (results) => {
+      if (results.every(({ status }) => status === "already-patched")) finalizeCursorAppPatch();
       cursorPatchReady = true;
       wasCursorRunning = true;
     },
