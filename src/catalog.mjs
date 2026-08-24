@@ -73,6 +73,30 @@ export function priorityModelIds(catalogFile = configuredCodexCatalogFile()) {
   }
 }
 
+export function codexNativeModels(catalogFile = configuredCodexCatalogFile()) {
+  try {
+    const payload = JSON.parse(readFileSync(catalogFile, "utf8"));
+    return payload.models
+      .filter((model) => typeof model?.slug === "string"
+        && !model.slug.includes("/")
+        && model.visibility === "list"
+        && model.supported_in_api === true
+        && model.opencodex_capability_provenance === undefined)
+      .map((model) => ({
+        id: model.slug,
+        owned_by: "openai",
+        capabilities: {
+          input_modalities: model.input_modalities,
+          context_length: model.context_window,
+          max_output_tokens: model.max_output_tokens,
+          reasoning_effort: model.supported_reasoning_levels?.map(({ effort }) => effort),
+        },
+      }));
+  } catch {
+    return [];
+  }
+}
+
 export function normalizeActiveCatalog(configured, active, fastModelIds = new Set()) {
   const configuredById = new Map(configured
     .filter((model) => typeof model.provider === "string" && typeof model.model === "string")
@@ -141,9 +165,10 @@ export async function activeModels(fetchImpl = fetch) {
 }
 
 export async function buildActiveCatalog(options = {}) {
+  const codexCatalogFile = options.codexCatalogFile || configuredCodexCatalogFile();
   return normalizeActiveCatalog(
     configuredModels(options.ocxBin),
-    await activeModels(options.fetchImpl),
-    options.fastModelIds || priorityModelIds(options.codexCatalogFile),
+    [...await activeModels(options.fetchImpl), ...codexNativeModels(codexCatalogFile)],
+    options.fastModelIds || priorityModelIds(codexCatalogFile),
   );
 }
