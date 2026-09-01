@@ -45,6 +45,52 @@ function disableStrictFunctionTools(tools) {
   }
 }
 
+function enrichSubagentModelTools(tools, catalog) {
+  if (!Array.isArray(tools)) return;
+  const aliases = catalog.map(({ alias }) => alias).filter((alias) => alias.startsWith(managedPrefix));
+  if (aliases.length === 0) return;
+  const modelList = aliases.map((alias) => `- ${alias}`).join("\n");
+  const modelListPattern = /(If the user explicitly asks for the model of a subagent\/task,[\s\S]*?)(?=\n\nIf the user isn't asking)/;
+  for (const tool of tools) {
+    if (!isRecord(tool) || tool.type !== "function") continue;
+    const definition = isRecord(tool.function) ? tool.function : tool;
+    if (typeof definition.name !== "string" || !/^(subagent|task)$/i.test(definition.name)) continue;
+    if (typeof definition.description === "string" && modelListPattern.test(definition.description)) {
+      definition.description = definition.description.replace(modelListPattern, `$1\n${modelList}`);
+    }
+    const model = definition.parameters?.properties?.model;
+    if (!isRecord(model)) continue;
+    if (Array.isArray(model.enum)) {
+      model.enum = [...new Set([...model.enum, ...aliases])];
+    }
+    if (typeof model.description === "string") {
+      model.description += ` Available OpenCodex model slugs: ${aliases.join(", ")}.`;
+    }
+  }
+}
+
+function restoreRoutedSubagentModels(messages, catalog) {
+  if (!Array.isArray(messages)) return;
+  const aliases = new Set(catalog.map(({ alias }) => alias));
+  const restore = (text) => {
+    if (typeof text !== "string") return text;
+    const requested = [...text.matchAll(/<ocx-subagent-model>(opencodex\/[^<]+)<\/ocx-subagent-model>/g)]
+      .map((match) => match[1])
+      .find((alias) => aliases.has(alias));
+    return requested ? text.split("composer-2.5").join(requested) : text;
+  };
+  for (const message of messages) {
+    if (!isRecord(message)) continue;
+    if (typeof message.content === "string") {
+      message.content = restore(message.content);
+    } else if (Array.isArray(message.content)) {
+      for (const part of message.content) {
+        if (isRecord(part) && typeof part.text === "string") part.text = restore(part.text);
+      }
+    }
+  }
+}
+
 export function rewriteModelAliasBody(body, catalog) {
   if (!body?.length) return body;
   let payload;
@@ -54,6 +100,8 @@ export function rewriteModelAliasBody(body, catalog) {
     return body;
   }
   if (!isRecord(payload) || typeof payload.model !== "string" || !payload.model.startsWith(managedPrefix)) return body;
+  restoreRoutedSubagentModels(payload.messages, catalog);
+  enrichSubagentModelTools(payload.tools, catalog);
 
   const variant = /^(opencodex\/.+?)\[([^\]]+)\]$/.exec(payload.model);
   let alias = variant?.[1] || payload.model;

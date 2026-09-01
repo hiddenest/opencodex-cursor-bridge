@@ -16,12 +16,21 @@ export const cursorPatchMarker = "/*ocx-cursor-model-metadata-v6*/";
 export const legacyCursorPatchMarker = "/*ocx-cursor-model-metadata*/";
 export const cursorByokRoutingPatchMarker = "/*ocx-cursor-byok-model-routing-v1*/";
 export const cursorSubagentModelsPatchMarker = "/*ocx-cursor-subagent-models-v1*/";
-export const cursorSubagentCredentialsPatchMarker = "/*ocx-cursor-subagent-credentials-v1*/";
-export const cursorSubagentLegacyDetailsPatchMarker = "/*ocx-cursor-subagent-legacy-details-v1*/";
+export const cursorSubagentCredentialsPatchMarker = "/*ocx-cursor-subagent-credentials-v2*/";
+export const legacyCursorSubagentCredentialsPatchMarker = "/*ocx-cursor-subagent-credentials-v1*/";
+export const cursorSubagentLegacyDetailsPatchMarker = "/*ocx-cursor-subagent-legacy-details-v2*/";
+export const legacyCursorSubagentLegacyDetailsPatchMarker = "/*ocx-cursor-subagent-legacy-details-v1*/";
 export const cursorSubagentPromptRoutingPatchMarker = "/*ocx-cursor-subagent-prompt-routing-v3*/";
 export const cursorSubagentExecutionRoutingPatchMarker = "/*ocx-cursor-subagent-execution-routing-v5*/";
 export const cursorSubagentRunRoutingPatchMarker = "/*ocx-cursor-subagent-run-routing-v1*/";
 export const cursorSubagentRuntimeCredentialsPatchMarker = "/*ocx-cursor-subagent-runtime-credentials-v1*/";
+export const cursorSubagentModelDisplayPatchMarker = "/*ocx-cursor-subagent-model-display-v2*/";
+export const legacyCursorSubagentModelDisplayPatchMarker = "/*ocx-cursor-subagent-model-display-v1*/";
+export const cursorSubagentTaskArgsDisplayPatchMarker = "/*ocx-cursor-subagent-task-args-display-v5*/";
+export const legacyCursorSubagentTaskArgsDisplayV4PatchMarker = "/*ocx-cursor-subagent-task-args-display-v4*/";
+export const legacyCursorSubagentTaskArgsDisplayV3PatchMarker = "/*ocx-cursor-subagent-task-args-display-v3*/";
+export const legacyCursorSubagentTaskArgsDisplayV2PatchMarker = "/*ocx-cursor-subagent-task-args-display-v2*/";
+export const legacyCursorSubagentTaskArgsDisplayPatchMarker = "/*ocx-cursor-subagent-task-args-display-v1*/";
 export const cursorRoutedSubagentTypesPatchMarker = "/*ocx-cursor-hide-routed-subagent-types-v1*/";
 export const cursorLocalModeDisabled = "localMode:!1";
 export const cursorLocalModeEnabled = "localMode:!0";
@@ -39,10 +48,12 @@ const previousCatalogInjection = /\/\*ocx-cursor-model-metadata(?:-v[2-5])?\*\/(
 const byokModelRouting = /function (?<functionName>[A-Za-z_$][\w$]*)\((?<model>[A-Za-z_$][\w$]*),(?<settings>[A-Za-z_$][\w$]*)\)\{return (?<isClaude>[A-Za-z_$][\w$]*)\(\k<model>\)\?\k<settings>\.useClaudeKey\?"anthropic":void 0:(?<isGemini>[A-Za-z_$][\w$]*)\(\k<model>\)\?\k<settings>\.useGoogleKey\?"google":void 0:\k<settings>\.useOpenAIKey\?"openai":void 0\}/g;
 const explicitSubagentModelFilter = /function (?<functionName>[A-Za-z_$][\w$]*)\((?<model>[A-Za-z_$][\w$]*),(?<isUserAdded>[A-Za-z_$][\w$]*),(?<storage>[A-Za-z_$][\w$]*)\)\{return \k<isUserAdded>===!0\?!0:(?<hasProviderOverride>[A-Za-z_$][\w$]*)\(\k<storage>\)\|\|(?<usesByok>[A-Za-z_$][\w$]*)\(\k<model>,\k<storage>\)\}(?=function [A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*\)\{const\{modelDetails:)/g;
 const explicitSubagentModelSelection = /function (?<functionName>[A-Za-z_$][\w$]*)\((?<input>[A-Za-z_$][\w$]*)\)\{const\{modelDetails:(?<modelDetails>[A-Za-z_$][\w$]*),flagEnabled:(?<flagEnabled>[A-Za-z_$][\w$]*),availableModels:(?<availableModels>[A-Za-z_$][\w$]*),storage:(?<storage>[A-Za-z_$][\w$]*),resolveModelParametersForSubmission:(?<resolveParameters>[A-Za-z_$][\w$]*)\}=\k<input>,(?<maxMode>[A-Za-z_$][\w$]*)=\k<modelDetails>\.maxMode===!0;/g;
+const explicitSubagentByokGuard = /if\((?<hasByok>[A-Za-z_$][\w$]*)\((?<modelDetails>[A-Za-z_$][\w$]*)\)\|\|!\((?<flagEnabled>[A-Za-z_$][\w$]*)\|\|(?<maxMode>[A-Za-z_$][\w$]*)\)\)return\{\};/g;
 const explicitSubagentRequestedModel = /new (?<requestedModelType>[A-Za-z_$][\w$]*)\(\{modelId:(?<model>[A-Za-z_$][\w$]*)\.name,maxMode:(?<maxMode>[A-Za-z_$][\w$]*),parameters:(?<parameters>[A-Za-z_$][\w$]*)\.map\((?<parameter>[A-Za-z_$][\w$]*)=>new (?<parameterType>[A-Za-z_$][\w$]*)\(\{id:\k<parameter>\.id,value:\k<parameter>\.value\}\)\)\}\)(?=\}\)\}\})/g;
 const explicitSubagentSelectionCall = /getSelectedSubagentModelSelections\((?<modelDetails>[A-Za-z_$][\w$]*)\)\{return (?<selector>[A-Za-z_$][\w$]*)\(\{modelDetails:\k<modelDetails>,flagEnabled:(?<featureGate>[\s\S]*?),availableModels:this\.modelConfigService\.getAvailableDefaultModels\(\),storage:this\.reactiveStorageService\.applicationUserPersistentStorage,resolveModelParametersForSubmission:\((?<model>[A-Za-z_$][\w$]*),(?<maxMode>[A-Za-z_$][\w$]*)\)=>this\.modelConfigService\.resolveModelParametersForSubmission\(\k<model>,void 0,\k<maxMode>\)\}\)\}/g;
 const agentModelDetailsType = /(?<type>[A-Za-z_$][\w$]*)=[A-Za-z_$][\w$]*\.makeMessageType\("agent\.v1\.ModelDetails"/g;
 const selectedSubagentLegacyDetails = /selectedSubagentModelDetails:(?<options>[A-Za-z_$][\w$]*)\.selectedSubagentModelsLegacy/g;
+const legacySelectedSubagentDetailsInjection = /selectedSubagentModelDetails:\/\*ocx-cursor-subagent-legacy-details-v1\*\/(?<options>[A-Za-z_$][\w$]*)\.selectedSubagentModelsLegacy\?\.length\?[\s\S]*?credentials:ocxCursorModel\.credentials\}\)\)/g;
 const agentCustomSystemPrompt = /customSystemPrompt:(?<options>[A-Za-z_$][\w$]*)\.customSystemPrompt(?=,harness:)/g;
 const agentRequestAction = /(?<prefix>conversationState:[A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*\),action:)(?<action>[A-Za-z_$][\w$]*)(?=,modelDetails:)/g;
 const legacySubagentPromptRouting = /customSystemPrompt:\(\(\)=>\{\/\*ocx-cursor-subagent-prompt-routing-v1\*\/const ocxCursorModelIds=\((?<options>[A-Za-z_$][\w$]*)\.selectedSubagentModels[\s\S]*?\}\)\(\)(?=,harness:)/g;
@@ -55,6 +66,13 @@ const appendSubagentComposer = /(?<declaration>const (?<result>[A-Za-z_$][\w$]*)
 const runSubagentWithHandle = /async runSubagentWithHandle\((?<input>[A-Za-z_$][\w$]*),(?<handle>[A-Za-z_$][\w$]*)\)\{return this\._runSubagent\(\k<input>,\k<handle>\)\}/g;
 const runSubagentModelConfigFixup = /(?<fixed>[A-Za-z_$][\w$]*)=\(typeof this\._modelConfigService\.fixupModelConfigForCurrentFlag=="function"\?this\._modelConfigService\.fixupModelConfigForCurrentFlag\(\{modelName:(?<resolved>[A-Za-z_$][\w$]*),maxMode:(?<maxMode>[A-Za-z_$][\w$]*)\}\):void 0\)\?\.selectedModels\?\?\[\],(?<stored>[A-Za-z_$][\w$]*)=(?<config>[A-Za-z_$][\w$]*)\?\.selectedModels\?\?\[\]/g;
 const requestedModelCredentials = /(?<prefix>new [A-Za-z_$][\w$]*\(\{modelId:(?<model>[A-Za-z_$][\w$]*),maxMode:(?<details>[A-Za-z_$][\w$]*)\.maxMode,parameters:[\s\S]*?,credentials:)this\.convertModelDetailsToCredentials\(\k<details>\)(?<suffix>\}\))(?=\}convertModelDetailsToCredentials)/g;
+const subagentModelDisplaySelection = /function (?<functionName>[A-Za-z_$][\w$]*)\((?<input>[A-Za-z_$][\w$]*)\)\{return \k<input>\.resumeTargetComposerId!==void 0\?\k<input>\.subagentModelName:\k<input>\.bestOfNModelName!==void 0\?\k<input>\.bestOfNModelName:\k<input>\.taskParamModelName\?\?\k<input>\.subagentModelName\}/g;
+const legacySubagentModelDisplaySelection = /function (?<functionName>[A-Za-z_$][\w$]*)\((?<input>[A-Za-z_$][\w$]*)\)\{\/\*ocx-cursor-subagent-model-display-v1\*\/return \k<input>\.subagentModelName\?\.startsWith\("opencodex\/"\)\?\k<input>\.subagentModelName:\k<input>\.resumeTargetComposerId!==void 0\?\k<input>\.subagentModelName:\k<input>\.bestOfNModelName!==void 0\?\k<input>\.bestOfNModelName:\k<input>\.taskParamModelName\?\?\k<input>\.subagentModelName\}/g;
+const subagentTaskArgsContext = /(?<args>[A-Za-z_$][\w$]*)=(?<argsExtractor>[A-Za-z_$][\w$]*)\((?<bubble>[A-Za-z_$][\w$]*)\),(?<resume>[A-Za-z_$][\w$]*)=(?<resumeExtractor>[A-Za-z_$][\w$]*)\(\k<args>\),[\s\S]{0,400}?(?<taskModel>[A-Za-z_$][\w$]*)=\k<resume>===void 0\?\k<bubble>\.params\?\.model:void 0/g;
+const legacySubagentTaskArgsDisplayV4 = /taskParamModelName:\/\*ocx-cursor-subagent-task-args-display-v4\*\/\(\(\)=>\{[\s\S]*?\}\)\(\)/g;
+const legacySubagentTaskArgsDisplayV3 = /taskParamModelName:\/\*ocx-cursor-subagent-task-args-display-v3\*\/\(\(\)=>\{[\s\S]*?return ocxCursorTaskModel\}\)\(\)/g;
+const legacySubagentTaskArgsDisplayV2 = /taskParamModelName:\/\*ocx-cursor-subagent-task-args-display-v2\*\/\(\(\)=>\{[\s\S]*?return ocxCursorTaskModel\}\)\(\)/g;
+const legacySubagentTaskArgsDisplay = /taskParamModelName:\/\*ocx-cursor-subagent-task-args-display-v1\*\/(?<taskModel>[A-Za-z_$][\w$]*)\?\?(?<args>[A-Za-z_$][\w$]*)\?\.model/g;
 const rawSubagentLoad = /(?<raw>[A-Za-z_$][\w$]*)=this\.subagentsService\.peekRawSubagents\(\)/g;
 const localModelConstructor = /function (?<functionName>[A-Za-z_$][\w$]*)\(e,t\)\{return new (?<modelType>[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*)\(\{modelId:e,displayModelId:e,displayName:null!=t\?t:e,displayNameShort:null!=t\?t:e,aliases:\[\]\}\)\}/g;
 const localRuntimeVisionCapability = /"boolean"==typeof (?<object>[A-Za-z_$][\w$]*)\.supports_vision\?\{supports_vision:\k<object>\.supports_vision\}:\{\}\)/g;
@@ -75,8 +93,17 @@ export function clearCursorAppQuarantine(options = {}) {
 export function finalizeCursorAppPatch(options = {}) {
   const execute = options.execFileSync || execFileSync;
   const appPath = options.appPath || cursorAppPath;
+  const verifyArgs = ["--verify", "--deep", "--strict", appPath];
+  let signatureIsValid = false;
+  try {
+    execute("/usr/bin/codesign", verifyArgs, { stdio: "ignore" });
+    signatureIsValid = true;
+  } catch {
+    // A rewritten bundle invalidates Cursor's signature and needs a fresh ad-hoc signature.
+  }
+  if (signatureIsValid) return;
   execute("/usr/bin/codesign", ["--force", "--sign", "-", appPath], { stdio: "ignore" });
-  execute("/usr/bin/codesign", ["--verify", "--deep", "--strict", appPath], { stdio: "ignore" });
+  execute("/usr/bin/codesign", verifyArgs, { stdio: "ignore" });
   clearCursorAppQuarantine({ ...options, appPath, execFileSync: execute });
 }
 
@@ -158,6 +185,14 @@ export function patchCursorExplicitSubagentModelsSource(source) {
 
 export function patchCursorSubagentCredentialsSource(source) {
   if (source.includes(cursorSubagentCredentialsPatchMarker)) return { status: "already-patched", source };
+  if (source.includes(legacyCursorSubagentCredentialsPatchMarker)) {
+    let upgraded = source.replace(legacyCursorSubagentCredentialsPatchMarker, cursorSubagentCredentialsPatchMarker);
+    upgraded = replaceSingleMatch(upgraded, explicitSubagentByokGuard, (match) => {
+      const { hasByok, modelDetails, flagEnabled, maxMode } = match.groups;
+      return `if(${hasByok}(${modelDetails})&&!${modelDetails}.modelName?.startsWith("opencodex/")||!(${flagEnabled}||${maxMode}))return{};`;
+    }, "explicit subagent BYOK guard");
+    return { status: "patched", source: upgraded };
+  }
   let patched = replaceSingleMatch(source, explicitSubagentModelSelection, (match) => {
     const { functionName, input, modelDetails, flagEnabled, availableModels, storage, resolveParameters, maxMode } = match.groups;
     return `function ${functionName}(${input}){${cursorSubagentCredentialsPatchMarker}const{modelDetails:${modelDetails},flagEnabled:${flagEnabled},availableModels:${availableModels},storage:${storage},resolveModelParametersForSubmission:${resolveParameters},resolveCredentialsForSubmission:ocxCursorResolveCredentials}=${input},${maxMode}=${modelDetails}.maxMode===!0;`;
@@ -170,19 +205,29 @@ export function patchCursorSubagentCredentialsSource(source) {
     const { modelDetails, selector, featureGate, model, maxMode } = match.groups;
     return `getSelectedSubagentModelSelections(${modelDetails}){return ${selector}({modelDetails:${modelDetails},flagEnabled:${featureGate},availableModels:this.modelConfigService.getAvailableDefaultModels(),storage:this.reactiveStorageService.applicationUserPersistentStorage,resolveModelParametersForSubmission:(${model},${maxMode})=>this.modelConfigService.resolveModelParametersForSubmission(${model},void 0,${maxMode}),resolveCredentialsForSubmission:ocxCursorModel=>ocxCursorModel.startsWith("opencodex/")?this.convertModelDetailsToCredentials({apiKey:this.cursorAuthenticationService.openAIKey()??void 0,openaiApiBaseUrl:this.reactiveStorageService.applicationUserPersistentStorage.openAIBaseUrl}):void 0})}`;
   }, "explicit subagent selection caller");
+  patched = replaceSingleMatch(patched, explicitSubagentByokGuard, (match) => {
+    const { hasByok, modelDetails, flagEnabled, maxMode } = match.groups;
+    return `if(${hasByok}(${modelDetails})&&!${modelDetails}.modelName?.startsWith("opencodex/")||!(${flagEnabled}||${maxMode}))return{};`;
+  }, "explicit subagent BYOK guard");
   return { status: "patched", source: patched };
 }
 
 export function patchCursorSubagentLegacyDetailsSource(source) {
   if (source.includes(cursorSubagentLegacyDetailsPatchMarker)) return { status: "already-patched", source };
-  const modelDetailsMatches = [...source.matchAll(agentModelDetailsType)];
+  let restored = source;
+  if (restored.includes(legacyCursorSubagentLegacyDetailsPatchMarker)) {
+    restored = replaceSingleMatch(restored, legacySelectedSubagentDetailsInjection, (match) => {
+      return `selectedSubagentModelDetails:${match.groups.options}.selectedSubagentModelsLegacy`;
+    }, "legacy explicit subagent model details");
+  }
+  const modelDetailsMatches = [...restored.matchAll(agentModelDetailsType)];
   if (modelDetailsMatches.length !== 1) {
     throw new Error(`Expected one Cursor agent model details type, found ${modelDetailsMatches.length}`);
   }
   const modelDetailsType = modelDetailsMatches[0].groups.type;
-  const patched = replaceSingleMatch(source, selectedSubagentLegacyDetails, (match) => {
+  const patched = replaceSingleMatch(restored, selectedSubagentLegacyDetails, (match) => {
     const { options } = match.groups;
-    return `selectedSubagentModelDetails:${cursorSubagentLegacyDetailsPatchMarker}${options}.selectedSubagentModelsLegacy?.length?${options}.selectedSubagentModelsLegacy:${options}.selectedSubagentModels?.filter(ocxCursorModel=>ocxCursorModel.modelId.startsWith("opencodex/")).map(ocxCursorModel=>new ${modelDetailsType}({modelId:ocxCursorModel.modelId,displayModelId:ocxCursorModel.modelId,displayName:ocxCursorModel.modelId,displayNameShort:ocxCursorModel.modelId,aliases:[],maxMode:ocxCursorModel.maxMode,credentials:ocxCursorModel.credentials}))`;
+    return `selectedSubagentModelDetails:${cursorSubagentLegacyDetailsPatchMarker}[...(${options}.selectedSubagentModelsLegacy??[]),...(${options}.selectedSubagentModels??[]).filter(ocxCursorModel=>ocxCursorModel.modelId.startsWith("opencodex/")&&!(${options}.selectedSubagentModelsLegacy??[]).some(ocxCursorLegacyModel=>ocxCursorLegacyModel.modelId===ocxCursorModel.modelId)).map(ocxCursorModel=>new ${modelDetailsType}({modelId:ocxCursorModel.modelId,displayModelId:ocxCursorModel.modelId,displayName:ocxCursorModel.modelId,displayNameShort:ocxCursorModel.modelId,aliases:[],maxMode:ocxCursorModel.maxMode,credentials:ocxCursorModel.credentials}))]`;
   }, "legacy explicit subagent model details");
   return { status: "patched", source: patched };
 }
@@ -261,6 +306,51 @@ export function patchCursorSubagentRuntimeCredentialsSource(source) {
   return { status: "patched", source: patched };
 }
 
+export function patchCursorSubagentModelDisplaySource(source) {
+  if (source.includes(cursorSubagentModelDisplayPatchMarker)) return { status: "already-patched", source };
+  let restored = source;
+  if (restored.includes(legacyCursorSubagentModelDisplayPatchMarker)) {
+    restored = replaceSingleMatch(restored, legacySubagentModelDisplaySelection, (match) => {
+      const { functionName, input } = match.groups;
+      return `function ${functionName}(${input}){return ${input}.resumeTargetComposerId!==void 0?${input}.subagentModelName:${input}.bestOfNModelName!==void 0?${input}.bestOfNModelName:${input}.taskParamModelName??${input}.subagentModelName}`;
+    }, "legacy subagent model display selector");
+  }
+  const patched = replaceSingleMatch(restored, subagentModelDisplaySelection, (match) => {
+    const { functionName, input } = match.groups;
+    return `function ${functionName}(${input}){${cursorSubagentModelDisplayPatchMarker}return ${input}.resumeTargetComposerId!==void 0?${input}.subagentModelName:${input}.bestOfNModelName!==void 0?${input}.bestOfNModelName:${input}.taskParamModelName?.startsWith("opencodex/")?${input}.taskParamModelName:${input}.taskParamModelName?.startsWith("composer-")&&${input}.subagentModelName?.startsWith("opencodex/")?${input}.subagentModelName:${input}.taskParamModelName??${input}.subagentModelName}`;
+  }, "subagent model display selector");
+  return { status: "patched", source: patched };
+}
+
+export function patchCursorSubagentTaskArgsDisplaySource(source) {
+  if (source.includes(cursorSubagentTaskArgsDisplayPatchMarker)) return { status: "already-patched", source };
+  const contexts = [...source.matchAll(subagentTaskArgsContext)];
+  if (contexts.length !== 1) {
+    throw new Error(`Expected one Cursor subagent task args context, found ${contexts.length}`);
+  }
+  const { args, bubble, taskModel } = contexts[0].groups;
+  const replacement = `taskParamModelName:${cursorSubagentTaskArgsDisplayPatchMarker}/<ocx-subagent-model>(opencodex\\/[^<]+)<\\/ocx-subagent-model>/.exec(${bubble}.params?.prompt??${args}?.prompt??"")?.[1]??${taskModel}??${args}?.model`;
+  if (source.includes(legacyCursorSubagentTaskArgsDisplayV4PatchMarker)) {
+    const upgraded = replaceSingleMatch(source, legacySubagentTaskArgsDisplayV4, replacement, "v4 subagent task args model display field");
+    return { status: "patched", source: upgraded };
+  }
+  if (source.includes(legacyCursorSubagentTaskArgsDisplayV3PatchMarker)) {
+    const upgraded = replaceSingleMatch(source, legacySubagentTaskArgsDisplayV3, replacement, "v3 subagent task args model display field");
+    return { status: "patched", source: upgraded };
+  }
+  if (source.includes(legacyCursorSubagentTaskArgsDisplayV2PatchMarker)) {
+    const upgraded = replaceSingleMatch(source, legacySubagentTaskArgsDisplayV2, replacement, "v2 subagent task args model display field");
+    return { status: "patched", source: upgraded };
+  }
+  if (source.includes(legacyCursorSubagentTaskArgsDisplayPatchMarker)) {
+    const upgraded = replaceSingleMatch(source, legacySubagentTaskArgsDisplay, replacement, "legacy subagent task args model display field");
+    return { status: "patched", source: upgraded };
+  }
+  const field = new RegExp(`taskParamModelName:${taskModel}(?=[},])`, "g");
+  const patched = replaceSingleMatch(source, field, replacement, "subagent task args model display field");
+  return { status: "patched", source: patched };
+}
+
 export function patchCursorRoutedSubagentTypesSource(source) {
   if (source.includes(cursorRoutedSubagentTypesPatchMarker)) return { status: "already-patched", source };
   const patched = replaceSingleMatch(source, rawSubagentLoad, (match) => {
@@ -280,9 +370,11 @@ export function patchCursorWorkbenchSource(source) {
   const executionRouting = patchCursorSubagentExecutionRoutingSource(promptRouting.source);
   const runRouting = patchCursorSubagentRunRoutingSource(executionRouting.source);
   const runtimeCredentials = patchCursorSubagentRuntimeCredentialsSource(runRouting.source);
-  const subagentTypes = patchCursorRoutedSubagentTypesSource(runtimeCredentials.source);
+  const modelDisplay = patchCursorSubagentModelDisplaySource(runtimeCredentials.source);
+  const taskArgsDisplay = patchCursorSubagentTaskArgsDisplaySource(modelDisplay.source);
+  const subagentTypes = patchCursorRoutedSubagentTypesSource(taskArgsDisplay.source);
   return {
-    status: metadata.status === "patched" || routing.status === "patched" || subagents.status === "patched" || credentials.status === "patched" || legacyDetails.status === "patched" || promptRouting.status === "patched" || executionRouting.status === "patched" || runRouting.status === "patched" || runtimeCredentials.status === "patched" || subagentTypes.status === "patched"
+    status: metadata.status === "patched" || routing.status === "patched" || subagents.status === "patched" || credentials.status === "patched" || legacyDetails.status === "patched" || promptRouting.status === "patched" || executionRouting.status === "patched" || runRouting.status === "patched" || runtimeCredentials.status === "patched" || modelDisplay.status === "patched" || taskArgsDisplay.status === "patched" || subagentTypes.status === "patched"
       ? "patched"
       : "already-patched",
     source: subagentTypes.source,

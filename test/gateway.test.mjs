@@ -97,6 +97,69 @@ test("disables strict Chat Completions tools without changing their schemas", ()
   assert.deepEqual(rewritten.tools[0].function.parameters, parameters);
 });
 
+test("adds OpenCodex aliases to Cursor's Subagent model instructions", () => {
+  const description = [
+    "Launch a specialized subagent.",
+    "",
+    "If the user explicitly asks for the model of a subagent/task, you may ONLY use model slugs from this list:",
+    "- inherit (default; required unless the user explicitly requested another model)",
+    "- composer-2.5-fast",
+    "",
+    "If the user isn't asking for a specific version, prefer the latest version of the model family.",
+  ].join("\n");
+  const body = Buffer.from(JSON.stringify({
+    model: "opencodex/gpt-5.6-sol",
+    messages: [],
+    tools: [{
+      type: "function",
+      function: {
+        name: "Subagent",
+        description,
+        parameters: {
+          type: "object",
+          properties: {
+            model: {
+              type: "string",
+              enum: ["inherit", "composer-2.5-fast"],
+              description: "Optional model slug for this agent.",
+            },
+          },
+        },
+      },
+    }],
+  }));
+
+  const rewritten = JSON.parse(rewriteModelAliasBody(body, [anthropic, openai]));
+  const tool = rewritten.tools[0].function;
+  assert.match(tool.description, /- opencodex\/claude-sonnet-5/);
+  assert.match(tool.description, /- opencodex\/gpt-5\.6-sol/);
+  assert.match(tool.description, /If the user isn't asking for a specific version/);
+  assert.deepEqual(tool.parameters.properties.model.enum, [
+    "inherit",
+    "composer-2.5-fast",
+    "opencodex/claude-sonnet-5",
+    "opencodex/gpt-5.6-sol",
+  ]);
+  assert.match(tool.parameters.properties.model.description, /Available OpenCodex model slugs: opencodex\/claude-sonnet-5, opencodex\/gpt-5\.6-sol/);
+});
+
+test("restores the routed OpenCodex model in marked parent messages", () => {
+  const marker = "<ocx-subagent-model>opencodex/claude-sonnet-5</ocx-subagent-model>";
+  const body = Buffer.from(JSON.stringify({
+    model: "opencodex/gpt-5.6-sol",
+    messages: [
+      { role: "user", content: `composer-2.5 모델을 실행해.\n\n${marker}` },
+      { role: "user", content: [{ type: "text", text: `composer-2.5 only\n${marker}` }] },
+      { role: "user", content: "composer-2.5 without a routing marker" },
+    ],
+  }));
+
+  const rewritten = JSON.parse(rewriteModelAliasBody(body, [anthropic, openai]));
+  assert.match(rewritten.messages[0].content, /^opencodex\/claude-sonnet-5 모델을 실행해/);
+  assert.match(rewritten.messages[1].content[0].text, /^opencodex\/claude-sonnet-5 only/);
+  assert.equal(rewritten.messages[2].content, "composer-2.5 without a routing marker");
+});
+
 test("disables strict Responses tools and leaves other tools unchanged", () => {
   const body = Buffer.from(JSON.stringify({
     model: "opencodex/gpt-5.6-sol",
