@@ -10,6 +10,14 @@ import {
   legacyCursorLocalRuntimeCapabilitiesPatchMarker,
   cursorLocalRuntimePatchMarker,
   cursorPatchMarker,
+  cursorRoutedSubagentTypesPatchMarker,
+  cursorSubagentCredentialsPatchMarker,
+  cursorSubagentExecutionRoutingPatchMarker,
+  cursorSubagentLegacyDetailsPatchMarker,
+  cursorSubagentModelsPatchMarker,
+  cursorSubagentPromptRoutingPatchMarker,
+  cursorSubagentRunRoutingPatchMarker,
+  cursorSubagentRuntimeCredentialsPatchMarker,
   clearCursorAppQuarantine,
   ensureCursorAppPatched,
   ensureCursorModelMetadataPatched,
@@ -18,8 +26,16 @@ import {
   isCursorModelMetadataBundle,
   patchCursorBundleSource,
   patchCursorByokModelRoutingSource,
+  patchCursorExplicitSubagentModelsSource,
   patchCursorLocalModeSource,
   patchCursorLocalRuntimeSource,
+  patchCursorRoutedSubagentTypesSource,
+  patchCursorSubagentCredentialsSource,
+  patchCursorSubagentExecutionRoutingSource,
+  patchCursorSubagentLegacyDetailsSource,
+  patchCursorSubagentPromptRoutingSource,
+  patchCursorSubagentRunRoutingSource,
+  patchCursorSubagentRuntimeCredentialsSource,
   patchCursorWorkbenchSource,
   startCursorModelMetadataPatchMonitor,
   startCursorPatchMonitor,
@@ -27,7 +43,11 @@ import {
 import { cursorGlassWorkbenchFile, cursorWorkbenchFile } from "../src/paths.mjs";
 
 const byokSource = 'function MNg(e){return e.startsWith("claude-")}function PNg(e){return e.startsWith("gemini-")}function aVu(e,t){return MNg(e)?t.useClaudeKey?"anthropic":void 0:PNg(e)?t.useGoogleKey?"google":void 0:t.useOpenAIKey?"openai":void 0}';
-const source = `const flags={localMode:!1};let c=a.models;const k=h(c);c=c.map(z=>XTt(z)),bp(()=>{this._reactiveStorageService.setApplicationUserPersistentStorage("availableDefaultModels2",c)});${byokSource}`;
+const subagentSource = 'class HA{constructor(e){Object.assign(this,e)}}class xL{constructor(e){Object.assign(this,e)}}function providerOverride(e){return e.providerOverride===true}function usesByok(e,t){return t.useOpenAIKey&&t.aiSettings.userAddedModels.includes(e)}function blocked(e,t,n){return t===!0?!0:providerOverride(n)||usesByok(e,n)}function selected(e){const{modelDetails:t,flagEnabled:n,availableModels:i,storage:r,resolveModelParametersForSubmission:s}=e,o=t.maxMode===!0;if(!n)return{};const a=r.aiSettings?.modelOverrideEnabled??[],l=i.filter(u=>{if(!u.supportsAgent||blocked(u.name,u.isUserAdded,r))return!1;let h=u.defaultOn??!1;return a.includes(u.name)&&(h=!0),h});return l.length===0?{}:{selectedSubagentModels:l.map(u=>{const h=s(u.name,o);return new HA({modelId:u.name,maxMode:o,parameters:h.map(m=>new xL({id:m.id,value:m.value}))})})}}class AgentCompat{getSelectedSubagentModelSelections(t){return selected({modelDetails:t,flagEnabled:this.experimentService.checkFeatureGate("explicit_subagent_models",{disableExposureLog:!1}),availableModels:this.modelConfigService.getAvailableDefaultModels(),storage:this.reactiveStorageService.applicationUserPersistentStorage,resolveModelParametersForSubmission:(e,n)=>this.modelConfigService.resolveModelParametersForSubmission(e,void 0,n)})}}';
+const subagentLoaderSource = 'function context(){const e=this.subagentsService.peekRawSubagents(),t=e??[];return t}';
+const agentRequestSource = 'const A={makeMessageType:()=>class{constructor(e){Object.assign(this,e)}}},Zee=A.makeMessageType("agent.v1.ModelDetails",()=>[]),state=e=>e;function request(u,n,e){return{conversationState:state(e),action:n,modelDetails:u.modelDetails,customSystemPrompt:u.customSystemPrompt,harness:u.harness,selectedSubagentModelDetails:u.selectedSubagentModelsLegacy}}class AgentRuntime{buildRequestedModel(e,t){const s=t.data.modelConfig.selectedModels[0].modelId,a=[];return new Zee({modelId:s,maxMode:e.maxMode,parameters:a.map(l=>({id:l.id,value:l.value})),credentials:this.convertModelDetailsToCredentials(e)})}convertModelDetailsToCredentials(e){return{apiKey:e.apiKey,baseUrl:e.openaiApiBaseUrl}}}';
+const subagentExecutionSource = 'class SubagentService{constructor(models){this._modelConfigService={getAvailableDefaultModels:()=>models,getModelConfig:()=>({maxMode:true}),fixupModelConfigForCurrentFlag:()=>({selectedModels:[{modelId:"composer-2.5",parameters:[]}]}),setModelConfigForComposer:(e,t)=>{e.data.modelConfig={...e.data.modelConfig,...t,modelName:t.selectedModels?.[0]?.modelId??t.modelName}}};this._composerDataService={appendSubComposer:async e=>({data:e})}}async _prependRequiredGlobalCommandPrompt(e){return e.prompt}async createOrResumeSubagent(e){let t,n=e.resumeAgentId;const i=await this._prependRequiredGlobalCommandPrompt(e),m=this._modelConfigService.getModelConfig("composer"),g=typeof this._modelConfigService.fixupModelConfigForCurrentFlag=="function"?this._modelConfigService.fixupModelConfigForCurrentFlag({modelName:e.modelId,maxMode:m.maxMode===!0}):void 0,l={modelConfig:{modelName:g?.selectedModels?.[0]?.modelId??e.modelId,maxMode:m.maxMode===!0,...g?.selectedModels?.length?{selectedModels:g.selectedModels}: {}}};const h=await this._composerDataService.appendSubComposer(l);return{request:e,prompt:i,modelConfig:h.data.modelConfig}}async runSubagentWithHandle(t,e){return this._runSubagent(t,e)}async _runSubagent(t,e){const g=true,v=e.data.modelConfig,x=t.modelId,I=(typeof this._modelConfigService.fixupModelConfigForCurrentFlag=="function"?this._modelConfigService.fixupModelConfigForCurrentFlag({modelName:x,maxMode:g}):void 0)?.selectedModels??[],R=v?.selectedModels??[],M=I.length>0&&R.length===I.length&&R.every((n,i)=>n.modelId===I[i]?.modelId)?R:I,L=M.length>0?{maxMode:g,selectedModels:M}:{modelName:x,maxMode:g},N=M[0]?.modelId;v?.maxMode===g&&(N!==void 0?v?.selectedModels?.[0]?.modelId===N:v?.modelName===x&&(v?.selectedModels?.length??0)===0)||this._modelConfigService.setModelConfigForComposer(e,L);return{request:t,modelConfig:e.data.modelConfig}}}';
+const source = `const flags={localMode:!1};let c=a.models;const k=h(c);c=c.map(z=>XTt(z)),bp(()=>{this._reactiveStorageService.setApplicationUserPersistentStorage("availableDefaultModels2",c)});${byokSource}${subagentSource}${agentRequestSource}${subagentExecutionSource}${subagentLoaderSource}`;
 const localRuntimeSource = [
   'const runtimeExports={buildBottlerocketPickerModels:()=>M};',
   'function parseCapabilities(e){const r=e.reasoning_effort;return Object.assign(Object.assign(Object.assign({},"boolean"==typeof e.supports_reasoning?{supports_reasoning:e.supports_reasoning}:{}),"boolean"==typeof e.supports_vision?{supports_vision:e.supports_vision}:{}),void 0!==r?{reasoning_effort:r}:{})}',
@@ -181,8 +201,236 @@ test("routes custom API keys only for OpenCodex and user-added models", () => {
   assert.equal(patchCursorByokModelRoutingSource(result.source).status, "already-patched");
 });
 
+test("allows managed OpenCodex models through Cursor's explicit subagent filter", () => {
+  const result = patchCursorExplicitSubagentModelsSource(subagentSource);
+  assert.equal(result.status, "patched");
+  assert.match(result.source, new RegExp(cursorSubagentModelsPatchMarker.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  const blocked = new Function(`${result.source};return blocked`)();
+  const settings = {
+    providerOverride: false,
+    useOpenAIKey: true,
+    aiSettings: { userAddedModels: ["opencodex/claude-fable-5", "custom/model"] },
+  };
+
+  assert.equal(blocked("opencodex/claude-fable-5", true, settings), false);
+  assert.equal(blocked("custom/model", true, settings), true);
+  assert.equal(blocked("native/model", false, { ...settings, useOpenAIKey: false }), false);
+  assert.equal(patchCursorExplicitSubagentModelsSource(result.source).status, "already-patched");
+});
+
+test("attaches OpenCodex credentials to explicit subagent model requests", () => {
+  const result = patchCursorSubagentCredentialsSource(patchCursorExplicitSubagentModelsSource(subagentSource).source);
+  assert.equal(result.status, "patched");
+  assert.match(result.source, new RegExp(cursorSubagentCredentialsPatchMarker.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  const AgentCompat = new Function(`${result.source};return AgentCompat`)();
+  const storage = {
+    openAIBaseUrl: "http://127.0.0.1:8787/v1",
+    aiSettings: { modelOverrideEnabled: ["opencodex/claude-fable-5", "native/model"] },
+  };
+  const agent = new AgentCompat();
+  agent.experimentService = { checkFeatureGate: () => true };
+  agent.modelConfigService = {
+    getAvailableDefaultModels: () => [
+      { name: "opencodex/claude-fable-5", supportsAgent: true, isUserAdded: true },
+      { name: "native/model", supportsAgent: true, isUserAdded: false },
+    ],
+    resolveModelParametersForSubmission: () => [],
+  };
+  agent.reactiveStorageService = { applicationUserPersistentStorage: storage };
+  agent.cursorAuthenticationService = { openAIKey: () => "secret" };
+  agent.convertModelDetailsToCredentials = ({ apiKey, openaiApiBaseUrl }) => ({
+    case: "apiKeyCredentials",
+    value: { apiKey, baseUrl: openaiApiBaseUrl },
+  });
+
+  const { selectedSubagentModels } = agent.getSelectedSubagentModelSelections({ maxMode: false });
+  assert.deepEqual(selectedSubagentModels.map(({ modelId, credentials }) => ({ modelId, credentials })), [
+    {
+      modelId: "opencodex/claude-fable-5",
+      credentials: {
+        case: "apiKeyCredentials",
+        value: { apiKey: "secret", baseUrl: "http://127.0.0.1:8787/v1" },
+      },
+    },
+    { modelId: "native/model", credentials: undefined },
+  ]);
+  assert.equal(patchCursorSubagentCredentialsSource(result.source).status, "already-patched");
+});
+
+test("duplicates OpenCodex selections into Cursor's legacy subagent model details", () => {
+  const result = patchCursorSubagentLegacyDetailsSource(agentRequestSource);
+  assert.equal(result.status, "patched");
+  assert.match(result.source, new RegExp(cursorSubagentLegacyDetailsPatchMarker.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  const request = new Function(`${result.source};return request`)();
+  const credentials = { case: "apiKeyCredentials", value: { apiKey: "secret", baseUrl: "http://127.0.0.1:10101/v1" } };
+  const selectedSubagentModelDetails = request({
+    selectedSubagentModels: [
+      { modelId: "native/model", maxMode: false },
+      { modelId: "opencodex/claude-fable-5", maxMode: true, credentials },
+    ],
+  }).selectedSubagentModelDetails;
+
+  assert.deepEqual(JSON.parse(JSON.stringify(selectedSubagentModelDetails)), [{
+    modelId: "opencodex/claude-fable-5",
+    displayModelId: "opencodex/claude-fable-5",
+    displayName: "opencodex/claude-fable-5",
+    displayNameShort: "opencodex/claude-fable-5",
+    aliases: [],
+    maxMode: true,
+    credentials,
+  }]);
+  assert.equal(patchCursorSubagentLegacyDetailsSource(result.source).status, "already-patched");
+});
+
+test("rewrites exact OpenCodex model names only in the server request action", () => {
+  const result = patchCursorSubagentPromptRoutingSource(agentRequestSource);
+  assert.equal(result.status, "patched");
+  assert.match(result.source, new RegExp(cursorSubagentPromptRoutingPatchMarker.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  const request = new Function(`${result.source};return request`)();
+  const userMessage = {
+    text: "Fable subagent(model: opencodex/claude-fable-5) 사용",
+    richText: "Fable subagent(model: opencodex/claude-fable-5) 사용",
+  };
+  const action = { action: { case: "userMessageAction", value: { userMessage } } };
+  const routed = request({
+    conversationId: "parent-1",
+    customSystemPrompt: "Existing instructions",
+    selectedSubagentModels: [
+      { modelId: "composer-2.5" },
+      { modelId: "opencodex/claude-fable-5" },
+      { modelId: "opencodex/gpt-5.6-sol" },
+    ],
+  }, action, {});
+
+  assert.equal(routed.customSystemPrompt, "Existing instructions");
+  assert.equal(routed.action, action);
+  assert.equal(userMessage.text, "Fable subagent(model: composer-2.5) 사용\n\nLocal routing requirement: when calling the Subagent tool, its prompt must begin exactly with <ocx-subagent-model>opencodex/claude-fable-5</ocx-subagent-model>. Preserve this marker exactly.");
+  assert.equal(userMessage.richText, "Fable subagent(model: composer-2.5) 사용");
+  assert.equal(patchCursorSubagentPromptRoutingSource(result.source).status, "already-patched");
+});
+
+test("restores the exact OpenCodex model before Cursor creates a child composer", async () => {
+  const result = patchCursorSubagentExecutionRoutingSource(subagentExecutionSource);
+  assert.equal(result.status, "patched");
+  assert.match(result.source, new RegExp(cursorSubagentExecutionRoutingPatchMarker.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  const SubagentService = new Function(`${result.source};return SubagentService`)();
+  const service = new SubagentService([{ name: "opencodex/claude-fable-5" }]);
+
+  const routed = await service.createOrResumeSubagent({
+    modelId: "composer-2.5",
+    parentConversationId: "parent-1",
+    prompt: "<ocx-subagent-model>opencodex/claude-fable-5</ocx-subagent-model>Check Seoul weather",
+  });
+  assert.equal(routed.request.modelId, "opencodex/claude-fable-5");
+  assert.equal(routed.request.prompt, "Check Seoul weather");
+  assert.equal(routed.prompt, "Check Seoul weather");
+  assert.equal(routed.modelConfig.modelName, "opencodex/claude-fable-5");
+  assert.deepEqual(routed.modelConfig.selectedModels, [{ modelId: "opencodex/claude-fable-5", parameters: [] }]);
+
+  const native = await service.createOrResumeSubagent({ modelId: "composer-2.5", parentConversationId: "parent-2", prompt: "Native task" });
+  assert.equal(native.request.modelId, "composer-2.5");
+  assert.equal(native.request.prompt, "Native task");
+  assert.equal(native.modelConfig.modelName, "composer-2.5");
+
+  await assert.rejects(
+    service.createOrResumeSubagent({
+      modelId: "composer-2.5",
+      prompt: "<ocx-subagent-model>opencodex/missing</ocx-subagent-model>Task",
+    }),
+    /OpenCodex subagent model is unavailable: opencodex\/missing/,
+  );
+  assert.equal(patchCursorSubagentExecutionRoutingSource(result.source).status, "already-patched");
+});
+
+test("upgrades the v4 subagent execution patch before applying final model persistence", () => {
+  const v4 = patchCursorSubagentExecutionRoutingSource(subagentExecutionSource).source
+    .replaceAll("/*ocx-cursor-subagent-execution-routing-v5*/", "/*ocx-cursor-subagent-execution-routing-v4*/")
+    .replace(/ocxCursorRequestedModel&&\([A-Za-z_$][\w$]*\.modelConfig=\{modelName:ocxCursorRequestedModel,maxMode:[A-Za-z_$][\w$]*\.modelConfig\?\.maxMode===!0,selectedModels:\[\{modelId:ocxCursorRequestedModel,parameters:\[\]\}\]\}\);/, "");
+  const result = patchCursorSubagentExecutionRoutingSource(v4);
+
+  assert.equal(result.status, "patched");
+  assert.match(result.source, /ocx-cursor-subagent-execution-routing-v5/);
+  assert.doesNotMatch(result.source, /ocx-cursor-subagent-execution-routing-v4/);
+  assert.match(result.source, /ocxCursorRequestedModel&&\([A-Za-z_$][\w$]*\.modelConfig=/);
+});
+
+test("keeps the stored OpenCodex model when the child run starts", async () => {
+  const result = patchCursorSubagentRunRoutingSource(subagentExecutionSource);
+  assert.equal(result.status, "patched");
+  assert.match(result.source, new RegExp(cursorSubagentRunRoutingPatchMarker.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  const SubagentService = new Function(`${result.source};return SubagentService`)();
+  const service = new SubagentService([]);
+  const handle = {
+    data: {
+      modelConfig: {
+        modelName: "opencodex/claude-fable-5",
+        maxMode: true,
+        selectedModels: [{ modelId: "opencodex/claude-fable-5", parameters: [] }],
+      },
+    },
+  };
+
+  const routed = await service.runSubagentWithHandle({ modelId: "composer-2.5" }, handle);
+  assert.equal(routed.request.modelId, "opencodex/claude-fable-5");
+  assert.equal(routed.modelConfig.modelName, "opencodex/claude-fable-5");
+  assert.deepEqual(routed.modelConfig.selectedModels, [{ modelId: "opencodex/claude-fable-5", parameters: [] }]);
+
+  const nativeHandle = {
+    data: {
+      modelConfig: {
+        modelName: "composer-2.5",
+        maxMode: true,
+        selectedModels: [{ modelId: "composer-2.5", parameters: [] }],
+      },
+    },
+  };
+  const native = await service.runSubagentWithHandle({ modelId: "composer-2.5" }, nativeHandle);
+  assert.equal(native.request.modelId, "composer-2.5");
+  assert.equal(native.modelConfig.modelName, "composer-2.5");
+  assert.equal(patchCursorSubagentRunRoutingSource(result.source).status, "already-patched");
+});
+
+test("uses bridge credentials for an OpenCodex child request", () => {
+  const result = patchCursorSubagentRuntimeCredentialsSource(agentRequestSource);
+  assert.equal(result.status, "patched");
+  assert.match(result.source, new RegExp(cursorSubagentRuntimeCredentialsPatchMarker.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  const AgentRuntime = new Function(`${result.source};return AgentRuntime`)();
+  const runtime = new AgentRuntime();
+  runtime.cursorAuthenticationService = { openAIKey: () => "bridge-secret" };
+  runtime.reactiveStorageService = { applicationUserPersistentStorage: { openAIBaseUrl: "http://127.0.0.1:10101/v1" } };
+
+  const custom = runtime.buildRequestedModel(
+    { maxMode: true },
+    { data: { modelConfig: { selectedModels: [{ modelId: "opencodex/claude-fable-5" }] } } },
+  );
+  assert.deepEqual(custom.credentials, { apiKey: "bridge-secret", baseUrl: "http://127.0.0.1:10101/v1" });
+
+  const native = runtime.buildRequestedModel(
+    { maxMode: true, apiKey: "native-secret", openaiApiBaseUrl: "https://native.invalid/v1" },
+    { data: { modelConfig: { selectedModels: [{ modelId: "composer-2.5" }] } } },
+  );
+  assert.deepEqual(native.credentials, { apiKey: "native-secret", baseUrl: "https://native.invalid/v1" });
+  assert.equal(patchCursorSubagentRuntimeCredentialsSource(result.source).status, "already-patched");
+});
+
+test("hides generated routed agent types without changing other custom subagents", () => {
+  const result = patchCursorRoutedSubagentTypesSource(subagentLoaderSource);
+  assert.equal(result.status, "patched");
+  assert.match(result.source, new RegExp(cursorRoutedSubagentTypesPatchMarker.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  const context = new Function(`${result.source};return context`)();
+  const subagents = [
+    { name: "ocx-claude-fable-5", prompt: "<!-- generated-by: opencodex -->" },
+    { name: "ocx-cursor-model-anthropic-claude-fable-5", prompt: "<!-- generated-by: ocx-cursor -->" },
+    { name: "manual", prompt: "Keep me" },
+  ];
+
+  assert.deepEqual(context.call({ subagentsService: { peekRawSubagents: () => subagents } }), [subagents[2]]);
+  assert.deepEqual(context.call({ subagentsService: { peekRawSubagents: () => undefined } }), []);
+  assert.equal(patchCursorRoutedSubagentTypesSource(result.source).status, "already-patched");
+});
+
 test("restores stored OpenCodex models missing from Cursor's refreshed catalog", () => {
-  const executableSource = `function refresh(models){const plain=value=>value,batch=callback=>callback();let catalog=models;catalog=catalog.map(item=>plain(item)),batch(()=>{this._reactiveStorageService.setApplicationUserPersistentStorage("availableDefaultModels2",catalog)});return catalog}${byokSource}`;
+  const executableSource = `function refresh(models){const plain=value=>value,batch=callback=>callback();let catalog=models;catalog=catalog.map(item=>plain(item)),batch(()=>{this._reactiveStorageService.setApplicationUserPersistentStorage("availableDefaultModels2",catalog)});return catalog}${byokSource}${subagentSource}${agentRequestSource}${subagentExecutionSource}${subagentLoaderSource}`;
   const patched = patchCursorWorkbenchSource(executableSource);
   const refresh = new Function(`${patched.source};return refresh`)();
   const missingStoredModel = {
@@ -271,7 +519,7 @@ test("upgrades the v5 metadata hook to restore missing models", () => {
 });
 
 test("matches minified variable renames and is idempotent", () => {
-  const renamed = `let models=response.models;models=models.map(item=>plain(item)),batch(()=>{this._reactiveStorageService.setApplicationUserPersistentStorage("availableDefaultModels2",models)});${byokSource}`;
+  const renamed = `let models=response.models;models=models.map(item=>plain(item)),batch(()=>{this._reactiveStorageService.setApplicationUserPersistentStorage("availableDefaultModels2",models)});${byokSource}${subagentSource}${agentRequestSource}${subagentExecutionSource}${subagentLoaderSource}`;
   const first = patchCursorWorkbenchSource(renamed);
   assert.equal(first.status, "patched");
   const second = patchCursorWorkbenchSource(first.source);

@@ -121,7 +121,7 @@ The installer patches these files:
 /Applications/Cursor.app/Contents/Resources/app/out/vs/workbench/workbench.glass.main.js
 ```
 
-The patch keeps the model metadata that Cursor would discard. It leaves Cursor's local-agent mode disabled and does not edit either local-agent runtime.
+The patch keeps the model metadata that Cursor would discard and allows managed `opencodex/` models in Cursor's explicit subagent model list, including the gateway credentials and legacy model details used by Cursor's agent protocol. Generated OpenCodex agent definitions are hidden from Cursor so model routing uses Cursor's built-in subagent types instead of creating one custom type per model. Other user-added and BYOK models remain excluded from the model list. It leaves Cursor's local-agent mode disabled and does not edit either local-agent runtime.
 
 The login service refreshes the catalog every 15 seconds. It waits for Cursor to quit before writing the state database or reapplying a patch after a Cursor update.
 
