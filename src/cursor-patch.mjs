@@ -69,6 +69,7 @@ const requestedModelCredentials = /(?<prefix>new [A-Za-z_$][\w$]*\(\{modelId:(?<
 const subagentModelDisplaySelection = /function (?<functionName>[A-Za-z_$][\w$]*)\((?<input>[A-Za-z_$][\w$]*)\)\{return \k<input>\.resumeTargetComposerId!==void 0\?\k<input>\.subagentModelName:\k<input>\.bestOfNModelName!==void 0\?\k<input>\.bestOfNModelName:\k<input>\.taskParamModelName\?\?\k<input>\.subagentModelName\}/g;
 const legacySubagentModelDisplaySelection = /function (?<functionName>[A-Za-z_$][\w$]*)\((?<input>[A-Za-z_$][\w$]*)\)\{\/\*ocx-cursor-subagent-model-display-v1\*\/return \k<input>\.subagentModelName\?\.startsWith\("opencodex\/"\)\?\k<input>\.subagentModelName:\k<input>\.resumeTargetComposerId!==void 0\?\k<input>\.subagentModelName:\k<input>\.bestOfNModelName!==void 0\?\k<input>\.bestOfNModelName:\k<input>\.taskParamModelName\?\?\k<input>\.subagentModelName\}/g;
 const subagentTaskArgsContext = /(?<args>[A-Za-z_$][\w$]*)=(?<argsExtractor>[A-Za-z_$][\w$]*)\((?<bubble>[A-Za-z_$][\w$]*)\),(?<resume>[A-Za-z_$][\w$]*)=(?<resumeExtractor>[A-Za-z_$][\w$]*)\(\k<args>\),[\s\S]{0,400}?(?<taskModel>[A-Za-z_$][\w$]*)=\k<resume>===void 0\?\k<bubble>\.params\?\.model:void 0/g;
+const directSubagentTaskArgsContext = /subagentTypeName:(?<bubble>[A-Za-z_$][\w$]*)\.params\?\.name[\s\S]{0,2500}?taskParamModelName:(?<taskModel>[A-Za-z_$][\w$]*)\}\);return/g;
 const legacySubagentTaskArgsDisplayV4 = /taskParamModelName:\/\*ocx-cursor-subagent-task-args-display-v4\*\/\(\(\)=>\{[\s\S]*?\}\)\(\)/g;
 const legacySubagentTaskArgsDisplayV3 = /taskParamModelName:\/\*ocx-cursor-subagent-task-args-display-v3\*\/\(\(\)=>\{[\s\S]*?return ocxCursorTaskModel\}\)\(\)/g;
 const legacySubagentTaskArgsDisplayV2 = /taskParamModelName:\/\*ocx-cursor-subagent-task-args-display-v2\*\/\(\(\)=>\{[\s\S]*?return ocxCursorTaskModel\}\)\(\)/g;
@@ -324,12 +325,17 @@ export function patchCursorSubagentModelDisplaySource(source) {
 
 export function patchCursorSubagentTaskArgsDisplaySource(source) {
   if (source.includes(cursorSubagentTaskArgsDisplayPatchMarker)) return { status: "already-patched", source };
-  const contexts = [...source.matchAll(subagentTaskArgsContext)];
+  const legacyContexts = [...source.matchAll(subagentTaskArgsContext)];
+  const contexts = legacyContexts.length > 0
+    ? legacyContexts
+    : [...source.matchAll(directSubagentTaskArgsContext)];
   if (contexts.length !== 1) {
     throw new Error(`Expected one Cursor subagent task args context, found ${contexts.length}`);
   }
   const { args, bubble, taskModel } = contexts[0].groups;
-  const replacement = `taskParamModelName:${cursorSubagentTaskArgsDisplayPatchMarker}/<ocx-subagent-model>(opencodex\\/[^<]+)<\\/ocx-subagent-model>/.exec(${bubble}.params?.prompt??${args}?.prompt??"")?.[1]??${taskModel}??${args}?.model`;
+  const prompt = args ? `${bubble}.params?.prompt??${args}?.prompt??""` : `${bubble}.params?.prompt??""`;
+  const fallback = args ? `${taskModel}??${args}?.model` : taskModel;
+  const replacement = `taskParamModelName:${cursorSubagentTaskArgsDisplayPatchMarker}/<ocx-subagent-model>(opencodex\\/[^<]+)<\\/ocx-subagent-model>/.exec(${prompt})?.[1]??${fallback}`;
   if (source.includes(legacyCursorSubagentTaskArgsDisplayV4PatchMarker)) {
     const upgraded = replaceSingleMatch(source, legacySubagentTaskArgsDisplayV4, replacement, "v4 subagent task args model display field");
     return { status: "patched", source: upgraded };

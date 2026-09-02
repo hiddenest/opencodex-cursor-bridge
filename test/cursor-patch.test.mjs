@@ -55,6 +55,7 @@ const subagentSource = 'class HA{constructor(e){Object.assign(this,e)}}class xL{
 const subagentLoaderSource = 'function context(){const e=this.subagentsService.peekRawSubagents(),t=e??[];return t}';
 const subagentModelDisplaySource = 'function displayModel(e){return e.resumeTargetComposerId!==void 0?e.subagentModelName:e.bestOfNModelName!==void 0?e.bestOfNModelName:e.taskParamModelName??e.subagentModelName}';
 const subagentTaskCardSource = 'function taskArgs(e){return e.args}function resumeId(e){return e?.resume}function taskCard(m){const g=m.state,_=taskArgs(m),y=resumeId(_),w=m.child,k=y===void 0?m.params?.model:void 0,C=m.additionalData?.modelConfig,X=displayModel({bestOfNModelName:void 0,resumeTargetComposerId:y,subagentModelName:C?.modelName,taskParamModelName:k});return X}';
+const directSubagentTaskCardSource = 'function directTaskCard(m){const g=m.bubble,R=m.taskModel,X=displayModel({subagentTypeName:g.params?.name,bestOfNModelName:void 0,resumeTargetComposerId:void 0,subagentModelName:void 0,taskParamModelName:R});return X}';
 const agentRequestSource = 'const A={makeMessageType:()=>class{constructor(e){Object.assign(this,e)}}},Zee=A.makeMessageType("agent.v1.ModelDetails",()=>[]),state=e=>e;function request(u,n,e){return{conversationState:state(e),action:n,modelDetails:u.modelDetails,customSystemPrompt:u.customSystemPrompt,harness:u.harness,selectedSubagentModelDetails:u.selectedSubagentModelsLegacy}}class AgentRuntime{buildRequestedModel(e,t){const s=t.data.modelConfig.selectedModels[0].modelId,a=[];return new Zee({modelId:s,maxMode:e.maxMode,parameters:a.map(l=>({id:l.id,value:l.value})),credentials:this.convertModelDetailsToCredentials(e)})}convertModelDetailsToCredentials(e){return{apiKey:e.apiKey,baseUrl:e.openaiApiBaseUrl}}}';
 const subagentExecutionSource = 'class SubagentService{constructor(models){this._modelConfigService={getAvailableDefaultModels:()=>models,getModelConfig:()=>({maxMode:true}),fixupModelConfigForCurrentFlag:()=>({selectedModels:[{modelId:"composer-2.5",parameters:[]}]}),setModelConfigForComposer:(e,t)=>{e.data.modelConfig={...e.data.modelConfig,...t,modelName:t.selectedModels?.[0]?.modelId??t.modelName}}};this._composerDataService={appendSubComposer:async e=>({data:e})}}async _prependRequiredGlobalCommandPrompt(e){return e.prompt}async createOrResumeSubagent(e){let t,n=e.resumeAgentId;const i=await this._prependRequiredGlobalCommandPrompt(e),m=this._modelConfigService.getModelConfig("composer"),g=typeof this._modelConfigService.fixupModelConfigForCurrentFlag=="function"?this._modelConfigService.fixupModelConfigForCurrentFlag({modelName:e.modelId,maxMode:m.maxMode===!0}):void 0,l={modelConfig:{modelName:g?.selectedModels?.[0]?.modelId??e.modelId,maxMode:m.maxMode===!0,...g?.selectedModels?.length?{selectedModels:g.selectedModels}: {}}};const h=await this._composerDataService.appendSubComposer(l);return{request:e,prompt:i,modelConfig:h.data.modelConfig}}async runSubagentWithHandle(t,e){return this._runSubagent(t,e)}async _runSubagent(t,e){const g=true,v=e.data.modelConfig,x=t.modelId,I=(typeof this._modelConfigService.fixupModelConfigForCurrentFlag=="function"?this._modelConfigService.fixupModelConfigForCurrentFlag({modelName:x,maxMode:g}):void 0)?.selectedModels??[],R=v?.selectedModels??[],M=I.length>0&&R.length===I.length&&R.every((n,i)=>n.modelId===I[i]?.modelId)?R:I,L=M.length>0?{maxMode:g,selectedModels:M}:{modelName:x,maxMode:g},N=M[0]?.modelId;v?.maxMode===g&&(N!==void 0?v?.selectedModels?.[0]?.modelId===N:v?.modelName===x&&(v?.selectedModels?.length??0)===0)||this._modelConfigService.setModelConfigForComposer(e,L);return{request:t,modelConfig:e.data.modelConfig}}}';
 const source = `const flags={localMode:!1};let c=a.models;const k=h(c);c=c.map(z=>XTt(z)),bp(()=>{this._reactiveStorageService.setApplicationUserPersistentStorage("availableDefaultModels2",c)});${byokSource}${subagentSource}${agentRequestSource}${subagentExecutionSource}${subagentModelDisplaySource}${subagentTaskCardSource}${subagentLoaderSource}`;
@@ -569,6 +570,23 @@ test("prefers the routed subagent marker over the persisted parent model", () =>
     additionalData: { modelConfig: { modelName: "opencodex/gpt-5.6-sol" } },
   }), "opencodex/claude-fable-5");
   assert.equal(patchCursorSubagentTaskArgsDisplaySource(result.source).status, "already-patched");
+});
+
+test("patches the direct task-card context used by current Cursor builds", () => {
+  const display = patchCursorSubagentModelDisplaySource(subagentModelDisplaySource).source;
+  const result = patchCursorSubagentTaskArgsDisplaySource(`${display}${directSubagentTaskCardSource}`);
+  const directTaskCard = new Function(`${result.source};return directTaskCard`)();
+
+  assert.equal(result.status, "patched");
+  assert.equal(directTaskCard({
+    bubble: {
+      params: {
+        name: "generalPurpose",
+        prompt: "<ocx-subagent-model>opencodex/claude-fable-5</ocx-subagent-model>\nReply.",
+      },
+    },
+    taskModel: "opencodex/gpt-5.6-sol",
+  }), "opencodex/claude-fable-5");
 });
 
 test("upgrades the task args display patch to recover models from routing markers", () => {
