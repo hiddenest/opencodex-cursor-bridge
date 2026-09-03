@@ -45,6 +45,122 @@ function disableStrictFunctionTools(tools) {
   }
 }
 
+function normalizeCursorTool(tool) {
+  if (!isRecord(tool) || tool.type !== undefined || typeof tool.name !== "string" || !isRecord(tool.input_schema)) {
+    return tool;
+  }
+  const definition = {
+    name: tool.name,
+    ...(typeof tool.description === "string" ? { description: tool.description } : {}),
+    parameters: tool.input_schema,
+    ...(typeof tool.strict === "boolean" ? { strict: tool.strict } : {}),
+  };
+  return { type: "function", function: definition };
+}
+
+function normalizeToolChoice(choice) {
+  if (!isRecord(choice) || typeof choice.type !== "string") return choice;
+  if (choice.type === "auto") return "auto";
+  if (choice.type === "none") return "none";
+  if (choice.type === "any") return "required";
+  if (choice.type === "tool" && typeof choice.name === "string") {
+    return { type: "function", function: { name: choice.name } };
+  }
+  return choice;
+}
+
+function normalizeCursorTooling(payload) {
+  if (Array.isArray(payload.tools)) payload.tools = payload.tools.map(normalizeCursorTool);
+  if (payload.tool_choice !== undefined) payload.tool_choice = normalizeToolChoice(payload.tool_choice);
+}
+
+function toolResultText(value) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(toolResultText).filter(Boolean).join("\n");
+  if (isRecord(value)) {
+    if (typeof value.text === "string") return value.text;
+    if (value.content !== undefined) return toolResultText(value.content);
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "";
+    }
+  }
+  return value === undefined || value === null ? "" : String(value);
+}
+
+function openAiToolCallFromCursorBlock(block) {
+  let args = "{}";
+  try {
+    args = JSON.stringify(block.input ?? {}) ?? "{}";
+  } catch {
+    // Keep the request valid if Cursor supplied a non-serializable input value.
+  }
+  return {
+    id: block.id,
+    type: "function",
+    function: {
+      name: block.name,
+      arguments: args,
+    },
+  };
+}
+
+export function normalizeCursorChatMessages(messages) {
+  if (!Array.isArray(messages)) return messages;
+  const normalized = [];
+  for (const message of messages) {
+    if (!isRecord(message) || !Array.isArray(message.content)) {
+      normalized.push(message);
+      continue;
+    }
+    if (message.role === "assistant") {
+      const allToolUses = message.content.filter((block) => isRecord(block) && block.type === "tool_use");
+      const toolUses = allToolUses.filter((block) => typeof block.id === "string" && block.id.length > 0 && typeof block.name === "string");
+      if (allToolUses.length > toolUses.length) {
+        normalized.push(message);
+        continue;
+      }
+      if (toolUses.length === 0) {
+        normalized.push(message);
+        continue;
+      }
+      const existingToolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+      const existingIds = new Set(existingToolCalls.map((call) => call?.id).filter((id) => typeof id === "string"));
+      const newToolUses = toolUses.filter((block) => !existingIds.has(block.id));
+      const content = message.content.filter((block) => !(isRecord(block) && block.type === "tool_use"));
+      normalized.push({
+        ...message,
+        content: content.length > 0 ? content : null,
+        tool_calls: [
+          ...existingToolCalls,
+          ...newToolUses.map((block) => openAiToolCallFromCursorBlock(block)),
+        ],
+      });
+      continue;
+    }
+    const toolResults = message.content.filter((block) => isRecord(block) && block.type === "tool_result");
+    if (message.role !== "user" || toolResults.length === 0) {
+      normalized.push(message);
+      continue;
+    }
+    if (toolResults.some((block) => typeof block.tool_use_id !== "string" || block.tool_use_id.length === 0)) {
+      normalized.push(message);
+      continue;
+    }
+    for (const block of toolResults) {
+      normalized.push({
+        role: "tool",
+        tool_call_id: block.tool_use_id,
+        content: toolResultText(block.content),
+      });
+    }
+    const remainingContent = message.content.filter((block) => !(isRecord(block) && block.type === "tool_result"));
+    if (remainingContent.length > 0) normalized.push({ ...message, content: remainingContent });
+  }
+  return normalized;
+}
+
 function enrichSubagentModelTools(tools, catalog) {
   if (!Array.isArray(tools)) return;
   const aliases = catalog.map(({ alias }) => alias).filter((alias) => alias.startsWith(managedPrefix));
@@ -91,7 +207,7 @@ function restoreRoutedSubagentModels(messages, catalog) {
   }
 }
 
-export function rewriteModelAliasBody(body, catalog) {
+export function rewriteModelAliasBody(body, catalog, route = "POST /v1/chat/completions") {
   if (!body?.length) return body;
   let payload;
   try {
@@ -101,7 +217,11 @@ export function rewriteModelAliasBody(body, catalog) {
   }
   if (!isRecord(payload) || typeof payload.model !== "string" || !payload.model.startsWith(managedPrefix)) return body;
   restoreRoutedSubagentModels(payload.messages, catalog);
-  enrichSubagentModelTools(payload.tools, catalog);
+  if (route === "POST /v1/chat/completions") {
+    payload.messages = normalizeCursorChatMessages(payload.messages);
+    normalizeCursorTooling(payload);
+    enrichSubagentModelTools(payload.tools, catalog);
+  }
 
   const variant = /^(opencodex\/.+?)\[([^\]]+)\]$/.exec(payload.model);
   let alias = variant?.[1] || payload.model;
@@ -251,7 +371,7 @@ export function startGateway(options) {
       const upstream = options.upstream || opencodexEndpoint();
       const receivedBody = await readBody(req);
       if (downstreamClosed) return;
-      const body = rewriteModelAliasBody(receivedBody, catalog);
+      const body = rewriteModelAliasBody(receivedBody, catalog, route);
       const token = options.serviceToken !== undefined ? options.serviceToken : await serviceToken();
       if (downstreamClosed) return;
       upstreamReq = http.request({
