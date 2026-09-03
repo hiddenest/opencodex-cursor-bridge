@@ -489,14 +489,29 @@ test("restores the exact OpenCodex model before Cursor creates a child composer"
 
 test("upgrades the v4 subagent execution patch before applying final model persistence", () => {
   const v4 = patchCursorSubagentExecutionRoutingSource(subagentExecutionSource).source
-    .replaceAll("/*ocx-cursor-subagent-execution-routing-v5*/", "/*ocx-cursor-subagent-execution-routing-v4*/")
-    .replace(/ocxCursorRequestedModel&&\([A-Za-z_$][\w$]*\.modelConfig=\{modelName:ocxCursorRequestedModel,maxMode:[A-Za-z_$][\w$]*\.modelConfig\?\.maxMode===!0,selectedModels:\[\{modelId:ocxCursorRequestedModel,parameters:\[\]\}\]\}\);/, "");
+    .replaceAll("/*ocx-cursor-subagent-execution-routing-v6*/", "/*ocx-cursor-subagent-execution-routing-v4*/")
+    .replace(/\([A-Za-z_$][\w$]*\.modelConfig\?\.modelName\?\.startsWith\("opencodex\/"\)\)&&\([A-Za-z_$][\w$]*\.modelConfig=\{modelName:[A-Za-z_$][\w$]*\.modelConfig\.modelName,maxMode:[A-Za-z_$][\w$]*\.modelConfig\?\.maxMode===!0,selectedModels:\[\{modelId:[A-Za-z_$][\w$]*\.modelConfig\.modelName,parameters:\[\]\}\]\}\);/, "");
   const result = patchCursorSubagentExecutionRoutingSource(v4);
 
   assert.equal(result.status, "patched");
-  assert.match(result.source, /ocx-cursor-subagent-execution-routing-v5/);
+  assert.match(result.source, /ocx-cursor-subagent-execution-routing-v6/);
   assert.doesNotMatch(result.source, /ocx-cursor-subagent-execution-routing-v4/);
-  assert.match(result.source, /ocxCursorRequestedModel&&\([A-Za-z_$][\w$]*\.modelConfig=/);
+  assert.match(result.source, /\.modelConfig\?\.modelName\?\.startsWith\("opencodex\/"\)/);
+});
+
+test("upgrades split-method v5 execution patches without leaking requested-model scope", () => {
+  const splitV5 = 'class SplitService{constructor(){this._modelConfigService={getAvailableDefaultModels:()=>[{name:"opencodex/claude-sonnet-5"}],getModelConfig:()=>({maxMode:true}),fixupModelConfigForCurrentFlag:()=>({selectedModels:[{modelId:"composer-2.5"}]})};this._composerDataService={appendSubComposer:async e=>({data:e})}}async createOrResumeSubagent(e){/*ocx-cursor-subagent-execution-routing-v5*/const ocxCursorModelMarker=typeof e.prompt==="string"?/^\\s*<ocx-subagent-model>(opencodex\\/[A-Za-z0-9._\\/-]+)<\\/ocx-subagent-model>\\s*/.exec(e.prompt):null,ocxCursorRequestedModel=ocxCursorModelMarker?.[1];if(ocxCursorRequestedModel)e={...e,modelId:ocxCursorRequestedModel};if(ocxCursorModelMarker)e={...e,prompt:e.prompt.slice(ocxCursorModelMarker[0].length)};const t={mode:e.resumeAgentId?"resume":"create"};return this._createOrResumeSubagentSpawn(e,t)}async _createOrResumeSubagentSpawn(e,t){const S=ocxCursorRequestedModel?void 0:this._modelConfigService.fixupModelConfigForCurrentFlag({modelName:e.modelId,maxMode:true}),g={modelConfig:{modelName:e.modelId}};ocxCursorRequestedModel&&(g.modelConfig={modelName:ocxCursorRequestedModel,maxMode:true,selectedModels:[{modelId:ocxCursorRequestedModel,parameters:[]}]});const v=await this._composerDataService.appendSubComposer(g);return v}async runSubagentWithHandle(e,t){return this._runSubagent(e,t)}}';
+  const result = patchCursorSubagentExecutionRoutingSource(splitV5);
+  assert.equal(result.status, "patched");
+  assert.match(result.source, /ocx-cursor-subagent-execution-routing-v6/);
+  assert.doesNotMatch(result.source, /ocxCursorRequestedModel\?void 0/);
+  const spawnBody = result.source.match(/async _createOrResumeSubagentSpawn\([\s\S]*?async runSubagentWithHandle/)?.[0] ?? "";
+  assert.doesNotMatch(spawnBody, /modelName:ocxCursorRequestedModel|modelId:ocxCursorRequestedModel/);
+  const SplitService = new Function(`${result.source};return SplitService`)();
+  const service = new SplitService();
+  return service.createOrResumeSubagent({ modelId: "composer-2.5", prompt: "<ocx-subagent-model>opencodex/claude-sonnet-5</ocx-subagent-model>Reply" }).then((child) => {
+    assert.equal(child.data.modelConfig.modelName, "opencodex/claude-sonnet-5");
+  });
 });
 
 test("keeps the stored OpenCodex model when the child run starts", async () => {

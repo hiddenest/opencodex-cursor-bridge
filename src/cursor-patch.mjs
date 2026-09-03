@@ -21,7 +21,7 @@ export const legacyCursorSubagentCredentialsPatchMarker = "/*ocx-cursor-subagent
 export const cursorSubagentLegacyDetailsPatchMarker = "/*ocx-cursor-subagent-legacy-details-v2*/";
 export const legacyCursorSubagentLegacyDetailsPatchMarker = "/*ocx-cursor-subagent-legacy-details-v1*/";
 export const cursorSubagentPromptRoutingPatchMarker = "/*ocx-cursor-subagent-prompt-routing-v3*/";
-export const cursorSubagentExecutionRoutingPatchMarker = "/*ocx-cursor-subagent-execution-routing-v5*/";
+export const cursorSubagentExecutionRoutingPatchMarker = "/*ocx-cursor-subagent-execution-routing-v6*/";
 export const cursorSubagentRunRoutingPatchMarker = "/*ocx-cursor-subagent-run-routing-v1*/";
 export const cursorSubagentRuntimeCredentialsPatchMarker = "/*ocx-cursor-subagent-runtime-credentials-v1*/";
 export const cursorSubagentModelDisplayPatchMarker = "/*ocx-cursor-subagent-model-display-v2*/";
@@ -60,6 +60,8 @@ const legacySubagentPromptRouting = /customSystemPrompt:\(\(\)=>\{\/\*ocx-cursor
 const legacySubagentRequestRouting = /(?<prefix>conversationState:[A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*\),action:)\(\(\)=>\{\/\*ocx-cursor-subagent-prompt-routing-v2\*\/[\s\S]*?return (?<action>[A-Za-z_$][\w$]*)\}\)\(\)(?=,modelDetails:)/g;
 const createOrResumeSubagentStart = /async createOrResumeSubagent\((?<input>[A-Za-z_$][\w$]*)\)\{/g;
 const legacySubagentExecutionRouting = /(?<start>async createOrResumeSubagent\((?<input>[A-Za-z_$][\w$]*)\)\{)\/\*ocx-cursor-subagent-execution-routing-v[1-4]\*\/[\s\S]*?(?=let [A-Za-z_$][\w$]*,[A-Za-z_$][\w$]*=\k<input>\.resumeAgentId;)/g;
+const currentSubagentExecutionRouting = /(?<start>async createOrResumeSubagent\((?<input>[A-Za-z_$][\w$]*)\)\{)\/\*ocx-cursor-subagent-execution-routing-v5\*\/[\s\S]*?(?=const [A-Za-z_$][\w$]*=\{mode:)/g;
+const subagentSpawnMethod = /(?<start>async _createOrResumeSubagentSpawn\((?<input>[A-Za-z_$][\w$]*),[A-Za-z_$][\w$]*\)\{)(?<body>[\s\S]*?)(?=async runSubagentWithHandle\()/g;
 const legacySubagentModelConfigFixup = /(?<fixup>[A-Za-z_$][\w$]*)=ocxCursorRequestedModel\?void 0:typeof this\._modelConfigService\.fixupModelConfigForCurrentFlag=="function"\?this\._modelConfigService\.fixupModelConfigForCurrentFlag\(\{modelName:(?<input>[A-Za-z_$][\w$]*)\.modelId,maxMode:(?<composerConfig>[A-Za-z_$][\w$]*)\.maxMode===!0\}\):void 0/g;
 const subagentModelConfigFixup = /(?<fixup>[A-Za-z_$][\w$]*)=typeof this\._modelConfigService\.fixupModelConfigForCurrentFlag=="function"\?this\._modelConfigService\.fixupModelConfigForCurrentFlag\(\{modelName:(?<input>[A-Za-z_$][\w$]*)\.modelId,maxMode:(?<composerConfig>[A-Za-z_$][\w$]*)\.maxMode===!0\}\):void 0/g;
 const appendSubagentComposer = /(?<declaration>const (?<result>[A-Za-z_$][\w$]*)=await this\._composerDataService\.appendSubComposer\((?<composer>[A-Za-z_$][\w$]*)\))/g;
@@ -281,11 +283,34 @@ export function patchCursorSubagentPromptRoutingSource(source) {
 export function patchCursorSubagentExecutionRoutingSource(source) {
   if (source.includes(cursorSubagentExecutionRoutingPatchMarker)) return { status: "already-patched", source };
   let restored = source;
+  let restoredLegacySpawn = false;
+  if (restored.includes("/*ocx-cursor-subagent-execution-routing-v5*/")) {
+    restored = replaceSingleMatch(restored, currentSubagentExecutionRouting, (match) => match.groups.start, "current subagent execution routing");
+    const spawnMatches = [...restored.matchAll(subagentSpawnMethod)];
+    if (spawnMatches.length === 1) {
+      const { start, input, body } = spawnMatches[0].groups;
+      const routedBody = body
+        .replaceAll("ocxCursorRequestedModel?void 0:", `${input}.modelId?.startsWith("opencodex/")?void 0:`)
+        .replaceAll("ocxCursorRequestedModel&&", `${input}.modelId?.startsWith("opencodex/")&&`)
+        .replaceAll("modelName:ocxCursorRequestedModel", `modelName:${input}.modelId`)
+        .replaceAll("modelId:ocxCursorRequestedModel", `modelId:${input}.modelId`);
+      if (routedBody !== body) {
+        restored = replaceSingleMatch(restored, subagentSpawnMethod, `${start}${routedBody}`, "current subagent spawn routing");
+        restoredLegacySpawn = true;
+      }
+    }
+  }
   if (restored.includes("/*ocx-cursor-subagent-execution-routing-v4*/")) {
-    restored = replaceSingleMatch(restored, legacySubagentModelConfigFixup, (match) => {
-      const { fixup, input, composerConfig } = match.groups;
-      return `${fixup}=typeof this._modelConfigService.fixupModelConfigForCurrentFlag=="function"?this._modelConfigService.fixupModelConfigForCurrentFlag({modelName:${input}.modelId,maxMode:${composerConfig}.maxMode===!0}):void 0`;
-    }, "legacy subagent model config fixup");
+    const legacyFixups = [...restored.matchAll(legacySubagentModelConfigFixup)];
+    if (legacyFixups.length > 1) {
+      throw new Error(`Expected at most one Cursor legacy subagent model config fixup, found ${legacyFixups.length}`);
+    }
+    if (legacyFixups.length === 1) {
+      restored = replaceSingleMatch(restored, legacySubagentModelConfigFixup, (match) => {
+        const { fixup, input, composerConfig } = match.groups;
+        return `${fixup}=typeof this._modelConfigService.fixupModelConfigForCurrentFlag=="function"?this._modelConfigService.fixupModelConfigForCurrentFlag({modelName:${input}.modelId,maxMode:${composerConfig}.maxMode===!0}):void 0`;
+      }, "legacy subagent model config fixup");
+    }
   }
   if (restored.includes("/*ocx-cursor-subagent-execution-routing-v1*/") || restored.includes("/*ocx-cursor-subagent-execution-routing-v2*/") || restored.includes("/*ocx-cursor-subagent-execution-routing-v3*/") || restored.includes("/*ocx-cursor-subagent-execution-routing-v4*/")) {
     restored = replaceSingleMatch(restored, legacySubagentExecutionRouting, (match) => match.groups.start, "legacy subagent execution routing");
@@ -294,14 +319,28 @@ export function patchCursorSubagentExecutionRoutingSource(source) {
     const { input } = match.groups;
     return `${match[0]}${cursorSubagentExecutionRoutingPatchMarker}const ocxCursorModelMarker=typeof ${input}.prompt==="string"?/^\\s*<ocx-subagent-model>(opencodex\\/[A-Za-z0-9._\\/-]+)<\\/ocx-subagent-model>\\s*/.exec(${input}.prompt):null,ocxCursorRequestedModel=ocxCursorModelMarker?.[1];if(ocxCursorRequestedModel&&!${input}.resumeAgentId){const ocxCursorModelAvailable=this._modelConfigService.getAvailableDefaultModels().some(ocxCursorModel=>ocxCursorModel?.name===ocxCursorRequestedModel);if(!ocxCursorModelAvailable)throw new Error("OpenCodex subagent model is unavailable: "+ocxCursorRequestedModel);${input}={...${input},modelId:ocxCursorRequestedModel}}if(ocxCursorModelMarker)${input}={...${input},prompt:${input}.prompt.slice(ocxCursorModelMarker[0].length)};`;
   }, "subagent execution entrypoint");
-  patched = replaceSingleMatch(patched, subagentModelConfigFixup, (match) => {
-    const { fixup, input, composerConfig } = match.groups;
-    return `${fixup}=ocxCursorRequestedModel?void 0:typeof this._modelConfigService.fixupModelConfigForCurrentFlag=="function"?this._modelConfigService.fixupModelConfigForCurrentFlag({modelName:${input}.modelId,maxMode:${composerConfig}.maxMode===!0}):void 0`;
-  }, "subagent model config fixup");
-  patched = replaceSingleMatch(patched, appendSubagentComposer, (match) => {
-    const { declaration, composer } = match.groups;
-    return `ocxCursorRequestedModel&&(${composer}.modelConfig={modelName:ocxCursorRequestedModel,maxMode:${composer}.modelConfig?.maxMode===!0,selectedModels:[{modelId:ocxCursorRequestedModel,parameters:[]}]});${declaration}`;
-  }, "final subagent model config");
+  const configFixups = [...patched.matchAll(subagentModelConfigFixup)];
+  if (configFixups.length > 1) throw new Error(`Expected at most one Cursor subagent model config fixup, found ${configFixups.length}`);
+  const allowMissingConfigFixup = restoredLegacySpawn || source.includes("/*ocx-cursor-subagent-execution-routing-v4*/");
+  if (configFixups.length === 0 && !allowMissingConfigFixup) {
+    throw new Error("Expected one Cursor subagent model config fixup, found 0");
+  }
+  if (configFixups.length === 1) {
+    patched = replaceSingleMatch(patched, subagentModelConfigFixup, (match) => {
+      const { fixup, input, composerConfig } = match.groups;
+      // The execution entrypoint and the composer-spawn helper are separate
+      // methods in current Cursor builds. The requested model marker is scoped
+      // to createOrResumeSubagent, so derive routing from the already-normalized
+      // request model here instead of referencing that out-of-scope variable.
+      return `${fixup}=${input}.modelId?.startsWith("opencodex/")?void 0:typeof this._modelConfigService.fixupModelConfigForCurrentFlag=="function"?this._modelConfigService.fixupModelConfigForCurrentFlag({modelName:${input}.modelId,maxMode:${composerConfig}.maxMode===!0}):void 0`;
+    }, "subagent model config fixup");
+  }
+  if (!restoredLegacySpawn) {
+    patched = replaceSingleMatch(patched, appendSubagentComposer, (match) => {
+      const { declaration, composer } = match.groups;
+      return `(${composer}.modelConfig?.modelName?.startsWith("opencodex/"))&&(${composer}.modelConfig={modelName:${composer}.modelConfig.modelName,maxMode:${composer}.modelConfig?.maxMode===!0,selectedModels:[{modelId:${composer}.modelConfig.modelName,parameters:[]}]});${declaration}`;
+    }, "final subagent model config");
+  }
   return { status: "patched", source: patched };
 }
 
