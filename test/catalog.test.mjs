@@ -53,6 +53,15 @@ test("normalizes active models except Cursor provider models", () => {
   ]);
 });
 
+test("infers allowed thinking efforts for active Claude Fable 5.1 rows without metadata", () => {
+  const normalized = normalizeActiveCatalog(
+    [{ provider: "anthropic", model: "claude-fable-5-1" }],
+    [{ id: "anthropic/claude-fable-5-1", owned_by: "anthropic", capabilities: { supports_reasoning: false } }],
+  );
+  assert.equal(normalized.length, 1);
+  assert.deepEqual(normalized[0].reasoningEfforts, ["low", "medium", "high", "xhigh", "max"]);
+});
+
 test("reads Fast support from the OpenCodex priority service tier", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ocx-cursor-catalog-"));
   const file = join(directory, "models.json");
