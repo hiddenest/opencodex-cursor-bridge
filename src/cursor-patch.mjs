@@ -86,9 +86,29 @@ const directoryPatchQueues = new Map();
 
 export function clearCursorAppQuarantine(options = {}) {
   const execute = options.execFileSync || execFileSync;
-  execute("/usr/bin/xattr", ["-dr", "com.apple.quarantine", options.appPath || cursorAppPath], {
-    stdio: "ignore",
-  });
+  const appPath = options.appPath || cursorAppPath;
+  try {
+    execute("/usr/bin/xattr", ["-dr", "com.apple.quarantine", appPath], {
+      stdio: "ignore",
+    });
+  } catch (error) {
+    // Read-only nested app directories can make recursive xattr traversal fail
+    // even after the bundle root has no quarantine attribute. List root
+    // attributes so probe failures and a real remaining quarantine are never
+    // hidden.
+    try {
+      const rootAttributes = execute("/usr/bin/xattr", [appPath], {
+        encoding: "utf8",
+      });
+      const hasRootQuarantine = String(rootAttributes)
+        .split(/\r?\n/)
+        .some((attribute) => attribute.trim() === "com.apple.quarantine");
+      if (!hasRootQuarantine) return;
+    } catch {
+      // Fail closed when the root probe itself cannot be completed.
+    }
+    throw error;
+  }
 }
 
 export function finalizeCursorAppPatch(options = {}) {

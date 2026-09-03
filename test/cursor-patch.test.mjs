@@ -86,6 +86,58 @@ test("removes only Cursor's quarantine attribute", () => {
   });
 });
 
+test("treats recursive quarantine cleanup EPERM as success when the app root is clear", () => {
+  const calls = [];
+  clearCursorAppQuarantine({
+    appPath: "/test/Cursor.app",
+    execFileSync(command, args, options) {
+      calls.push({ command, args, options });
+      if (args[0] === "-dr") throw Object.assign(new Error("read-only nested directory"), { code: "EPERM" });
+      return Buffer.from("com.apple.FinderInfo\n");
+    },
+  });
+  assert.deepEqual(calls, [
+    {
+      command: "/usr/bin/xattr",
+      args: ["-dr", "com.apple.quarantine", "/test/Cursor.app"],
+      options: { stdio: "ignore" },
+    },
+    {
+      command: "/usr/bin/xattr",
+      args: ["/test/Cursor.app"],
+      options: { encoding: "utf8" },
+    },
+  ]);
+});
+
+test("rethrows recursive quarantine cleanup errors when the app root is still quarantined", () => {
+  const recursiveError = Object.assign(new Error("read-only nested directory"), { code: "EPERM" });
+  assert.throws(
+    () => clearCursorAppQuarantine({
+      appPath: "/test/Cursor.app",
+      execFileSync(command, args) {
+        if (args[0] === "-dr") throw recursiveError;
+        return Buffer.from("com.apple.quarantine\ncom.apple.FinderInfo\n");
+      },
+    }),
+    (error) => error === recursiveError,
+  );
+});
+
+test("rethrows recursive quarantine cleanup errors when root attribute listing fails", () => {
+  const recursiveError = Object.assign(new Error("read-only nested directory"), { code: "EPERM" });
+  assert.throws(
+    () => clearCursorAppQuarantine({
+      appPath: "/test/Cursor.app",
+      execFileSync(command, args) {
+        if (args[0] === "-dr") throw recursiveError;
+        throw Object.assign(new Error("root probe unavailable"), { code: "EIO" });
+      },
+    }),
+    (error) => error === recursiveError,
+  );
+});
+
 test("ad-hoc signs an invalid patched Cursor app before clearing quarantine", () => {
   const calls = [];
   let verificationAttempts = 0;
