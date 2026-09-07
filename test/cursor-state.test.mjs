@@ -104,3 +104,27 @@ test("replaces only bridge-managed user models", () => {
     { id: "fast", value: "true" },
   ]);
 });
+
+test("migrates a removed synthetic Fast selection while retaining effort and real IDs", () => {
+  const fastAlias = `${model.alias}--fast`;
+  const real = { ...model, alias: "opencodex/real--fast" };
+  const state = {
+    availableDefaultModels2: [{ name: fastAlias }],
+    aiSettings: {
+      userAddedModels: [fastAlias],
+      modelConfig: { composer: { selectedModels: [
+        { modelId: fastAlias, parameters: [{ id: "effort", value: "low" }] },
+        { modelId: real.alias, parameters: [{ id: "fast", value: "false" }] },
+      ] } },
+    },
+  };
+  applyCatalogToState(state, [model, real]);
+  assert.equal(state.availableDefaultModels2.some(({ name }) => name === fastAlias), false);
+  assert.equal(state.aiSettings.userAddedModels.includes(fastAlias), false);
+  assert.deepEqual(state.aiSettings.modelConfig.composer.selectedModels[0], {
+    modelId: model.alias,
+    parameters: [{ id: "effort", value: "low" }, { id: "fast", value: "true" }],
+  });
+  assert.equal(state.aiSettings.modelConfig.composer.selectedModels[1].modelId, real.alias);
+  assert.deepEqual(state.aiSettings.modelConfig.composer.selectedModels[1].parameters.at(-1), { id: "fast", value: "false" });
+});

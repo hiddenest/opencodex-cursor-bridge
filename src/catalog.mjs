@@ -73,38 +73,30 @@ export function priorityModelIds(catalogFile = configuredCodexCatalogFile()) {
   }
 }
 
-export function codexNativeModels(catalogFile = configuredCodexCatalogFile()) {
-  try {
-    const payload = JSON.parse(readFileSync(catalogFile, "utf8"));
-    return payload.models
-      .filter((model) => typeof model?.slug === "string"
-        && !model.slug.includes("/")
-        && model.visibility === "list"
-        && model.supported_in_api === true
-        && model.opencodex_capability_provenance === undefined)
-      .map((model) => ({
-        id: model.slug,
-        owned_by: "openai",
-        capabilities: {
-          input_modalities: model.input_modalities,
-          context_length: model.context_window,
-          max_output_tokens: model.max_output_tokens,
-          reasoning_effort: model.supported_reasoning_levels?.map(({ effort }) => effort),
-        },
-      }));
-  } catch {
-    return [];
-  }
-}
-
 export function normalizeActiveCatalog(configured, active, fastModelIds = new Set()) {
   const configuredById = new Map(configured
     .filter((model) => typeof model.provider === "string" && typeof model.model === "string")
     .map((model) => [`${model.provider}/${model.model}`, model]));
   const models = new Map();
+  const activeIds = new Set(active.filter((model) => model?.owned_by !== "opencodex").map((model) => model?.id));
+  const configuredIds = new Set(configured.flatMap((model) => [
+    `${model.provider}/${model.model}`,
+    model.alias,
+    ...(model.provider === "openai" ? [model.model] : []),
+  ]));
+  // OpenCodex publishes synthetic --fast rows for clients without a Fast toggle.
+  // Preserve exact configured IDs and real product names ending in a single -fast.
+  const fastRows = new Set(active.filter((model) => (
+    typeof model?.id === "string"
+    && model.owned_by !== "opencodex"
+    && model.id.endsWith("--fast")
+    && !configuredIds.has(model.id)
+    && activeIds.has(model.id.slice(0, -"--fast".length))
+  )).map((model) => model.id));
 
   for (const model of active) {
     if (typeof model?.id !== "string" || model.owned_by === "opencodex") continue;
+    if (fastRows.has(model.id)) continue;
     const configuredModel = configuredById.get(model.id);
     const provider = model.id.includes("/") ? model.id.split("/", 1)[0] : String(model.owned_by || "openai").toLowerCase();
     if (provider === "cursor") continue;
@@ -123,7 +115,7 @@ export function normalizeActiveCatalog(configured, active, fastModelIds = new Se
       maxOutputTokens: model.capabilities?.max_output_tokens,
       inputModalities,
       reasoningEfforts: sanitizeEfforts(model.id, configuredModel?.reasoningEfforts ?? model.capabilities?.reasoning_effort),
-      supportsFast: fastModelIds.has(model.id),
+      supportsFast: fastModelIds.has(model.id) || fastRows.has(`${model.id}--fast`),
     });
   }
 
@@ -168,7 +160,7 @@ export async function buildActiveCatalog(options = {}) {
   const codexCatalogFile = options.codexCatalogFile || configuredCodexCatalogFile();
   return normalizeActiveCatalog(
     configuredModels(options.ocxBin),
-    [...await activeModels(options.fetchImpl), ...codexNativeModels(codexCatalogFile)],
+    await activeModels(options.fetchImpl),
     options.fastModelIds || priorityModelIds(codexCatalogFile),
   );
 }

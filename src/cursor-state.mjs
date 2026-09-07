@@ -186,6 +186,17 @@ function syncSelectedModel(state, catalog) {
   const composer = state.aiSettings?.modelConfig?.composer;
   if (!composer || !Array.isArray(composer.selectedModels)) return;
   const byAlias = new Map(catalog.map((model) => [model.alias, model]));
+  for (const selected of composer.selectedModels) {
+    if (typeof selected?.modelId !== "string" || byAlias.has(selected.modelId)
+      || !selected.modelId.endsWith("--fast")) continue;
+    const base = byAlias.get(selected.modelId.slice(0, -"--fast".length));
+    if (!base?.supportsFast) continue;
+    selected.modelId = base.alias;
+    selected.parameters = [
+      ...(Array.isArray(selected.parameters) ? selected.parameters.filter(({ id }) => id !== "fast") : []),
+      { id: "fast", value: "true" },
+    ];
+  }
   composer.selectedModels = composer.selectedModels.filter((selected) => (
     typeof selected?.modelId !== "string" || !selected.modelId.startsWith(managedPrefix) || byAlias.has(selected.modelId)
   ));
