@@ -6,7 +6,7 @@
 Use your active [OpenCodex](https://github.com/lidge-jun/opencodex) models in Cursor through an authenticated HTTPS endpoint on your Mac.
 
 > [!WARNING]
-> The installer edits two private workbench files inside `Cursor.app`. This invalidates Cursor's vendor signature, so the bridge applies a local ad-hoc seal and removes the app's quarantine attribute after each patch to prevent macOS from reporting a corrupt installation. The seal keeps Cursor's team-based designated requirement so in-app updates still pass validation. The bridge saves the original files under `~/.opencodex/cursor-bridge/cursor-app-backups`. Reinstall Cursor to restore a vendor-signed app.
+> The installer edits two private workbench files inside `Cursor.app`. This invalidates Cursor's vendor signature, so the bridge applies a local ad-hoc seal and removes the app's quarantine attribute after each patch to prevent macOS from reporting a corrupt installation. The seal keeps Cursor's team-based designated requirement so in-app updates still pass validation, and the bridge refreshes the `product.json` checksums of the files it patched so Cursor does not report a corrupt installation. The bridge saves the original files under `~/.opencodex/cursor-bridge/cursor-app-backups`. Reinstall Cursor to restore a vendor-signed app.
 
 ## Requirements
 

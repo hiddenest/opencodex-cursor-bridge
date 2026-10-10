@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { chmod, copyFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import {
@@ -119,6 +120,39 @@ export function clearCursorAppQuarantine(options = {}) {
 
 const designatedRequirementPrefix = "designated => ";
 const leadingIdentifierRequirement = /^identifier\s+"[^"]*"\s+and\s+/;
+const bridgePatchMarkerPrefix = "/*ocx-cursor-";
+
+// Cursor's integrity check compares workbench files with product.json checksums
+// and reports a corrupt installation after the bridge patches them. Refresh only
+// the checksums of files that carry a bridge marker so real corruption still surfaces.
+export function syncCursorProductChecksums(options = {}) {
+  const appRoot = join(options.appPath || cursorAppPath, "Contents", "Resources", "app");
+  const productFile = join(appRoot, "product.json");
+  if (!existsSync(productFile)) return [];
+  const source = readFileSync(productFile, "utf8");
+  let updated = source;
+  const changed = [];
+  for (const [relativePath, expected] of Object.entries(JSON.parse(source).checksums ?? {})) {
+    const file = join(appRoot, "out", relativePath);
+    if (!existsSync(file)) continue;
+    const contents = readFileSync(file);
+    if (!contents.includes(bridgePatchMarkerPrefix)) continue;
+    const actual = createHash("sha256").update(contents).digest("base64").replace(/=+$/, "");
+    if (actual === expected) continue;
+    updated = updated.replace(`"${expected}"`, `"${actual}"`);
+    changed.push(relativePath);
+  }
+  if (changed.length === 0) return changed;
+
+  const backupDirectory = options.backupDirectory || cursorPatchBackupDirectory;
+  mkdirSync(backupDirectory, { recursive: true });
+  const digest = createHash("sha256").update(source).digest("hex").slice(0, 16);
+  copyFileSync(productFile, join(backupDirectory, `product.json.${digest}.bak`));
+  const temporary = `${productFile}.ocx-cursor-${process.pid}`;
+  writeFileSync(temporary, updated, { mode: statSync(productFile).mode & 0o777 });
+  renameSync(temporary, productFile);
+  return changed;
+}
 
 function readDesignatedRequirement(execute, path) {
   try {
@@ -160,6 +194,12 @@ function deriveVendorRequirement(execute, appPath) {
 export function finalizeCursorAppPatch(options = {}) {
   const execute = options.execFileSync || execFileSync;
   const appPath = options.appPath || cursorAppPath;
+  try {
+    // Update checksums before verifying so the seal covers the new product.json.
+    syncCursorProductChecksums({ appPath, backupDirectory: options.backupDirectory });
+  } catch (error) {
+    process.stderr.write(`Cursor checksum update failed: ${error.message}\n`);
+  }
   const verifyArgs = ["--verify", "--deep", "--strict", appPath];
   let signatureIsValid = false;
   try {

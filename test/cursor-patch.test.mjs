@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -47,6 +48,7 @@ import {
   patchCursorWorkbenchSource,
   startCursorModelMetadataPatchMonitor,
   startCursorPatchMonitor,
+  syncCursorProductChecksums,
 } from "../src/cursor-patch.mjs";
 import { cursorGlassWorkbenchFile, cursorWorkbenchFile } from "../src/paths.mjs";
 
@@ -163,6 +165,23 @@ function fakeCodesign({ valid = true, appRequirement, squirrelRequirement, bundl
 }
 
 const signCalls = (calls) => calls.filter(({ args }) => args[0] === "--force");
+
+test("refreshes product checksums only for files patched by the bridge", async () => {
+  const appPath = join(await mkdtemp(join(tmpdir(), "ocx-cursor-product-")), "Cursor.app");
+  const appRoot = join(appPath, "Contents", "Resources", "app");
+  await mkdir(join(appRoot, "out", "vs", "workbench"), { recursive: true });
+  const patched = "const workbench=1;/*ocx-cursor-model-metadata-v6*/";
+  await writeFile(join(appRoot, "out", "vs", "workbench", "workbench.desktop.main.js"), patched);
+  await writeFile(join(appRoot, "out", "vs", "workbench", "workbench.desktop.main.css"), "body{}");
+  const product = '{\n  "nameShort": "Cursor",\n  "checksums": {\n    "vs/workbench/workbench.desktop.main.js": "vendorHash",\n    "vs/workbench/workbench.desktop.main.css": "unpatchedHash"\n  }\n}\n';
+  await writeFile(join(appRoot, "product.json"), product);
+  const backupDirectory = join(appPath, "..", "backups");
+
+  assert.deepEqual(syncCursorProductChecksums({ appPath, backupDirectory }), ["vs/workbench/workbench.desktop.main.js"]);
+  const expected = createHash("sha256").update(patched).digest("base64").replace(/=+$/, "");
+  assert.equal(await readFile(join(appRoot, "product.json"), "utf8"), product.replace("vendorHash", expected));
+  assert.deepEqual(syncCursorProductChecksums({ appPath, backupDirectory }), []);
+});
 
 test("keeps Cursor's vendor requirement when ad-hoc signing a patched app", () => {
   const fake = fakeCodesign({ valid: false, appRequirement: vendorAppRequirement });
