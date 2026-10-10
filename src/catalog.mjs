@@ -39,7 +39,7 @@ export function aliasFor(sourceId) {
 
 export function inferredEfforts(sourceId) {
   const modelId = sourceId.split("/").at(-1);
-  if (/^claude-(?:fable-5(?:-1)?|sonnet-5|opus-(?:5|4-[78]))$/.test(modelId)) return [...allowedEfforts];
+  if (/^claude-(?:(?:fable|sonnet|opus|haiku)-5(?:-\d+)?|opus-4-[78])$/.test(modelId)) return [...allowedEfforts];
   if (/^claude-(?:opus-4-6|sonnet-4-6)$/.test(modelId)) return ["low", "medium", "high", "max"];
   if (/^gpt-5\.6-(?:luna|sol|terra)$/.test(modelId)) return [...allowedEfforts];
   if (/^gpt-5\.[45](?:$|-)/.test(modelId)) return ["low", "medium", "high", "xhigh"];

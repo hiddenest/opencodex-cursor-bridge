@@ -62,6 +62,17 @@ test("infers allowed thinking efforts for active Claude Fable 5.1 rows without m
   assert.deepEqual(normalized[0].reasoningEfforts, ["low", "medium", "high", "xhigh", "max"]);
 });
 
+test("infers thinking efforts for Claude 5.x point releases missing from OpenCodex metadata", () => {
+  const normalized = normalizeActiveCatalog([], [
+    { id: "anthropic/claude-haiku-5-5", owned_by: "anthropic", capabilities: { supports_reasoning: false } },
+    { id: "anthropic/claude-opus-5-5", owned_by: "anthropic" },
+  ]);
+  assert.deepEqual(normalized.map(({ reasoningEfforts }) => reasoningEfforts), [
+    ["low", "medium", "high", "xhigh", "max"],
+    ["low", "medium", "high", "xhigh", "max"],
+  ]);
+});
+
 test("folds synthetic Fast rows into a base model toggle regardless of listing order", () => {
   const base = { id: "gpt-6-astra", owned_by: "openai", capabilities: { reasoning_effort: ["low", "high"] } };
   const fast = { ...base, id: "gpt-6-astra--fast" };
