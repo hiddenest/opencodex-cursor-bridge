@@ -65,6 +65,9 @@ test("prefixes human-readable model names only for ambiguous providers", () => {
   assert.equal(displayNameFor({ sourceId: "cursor/kimi-k3", provider: "cursor" }), "Cursor Kimi K3");
   assert.equal(displayNameFor({ sourceId: "opencode-go/deepseek-v4-flash" }), "OpenCode Go DeepSeek V4 Flash");
   assert.equal(displayNameFor({ sourceId: "opencode-go/qwen3.8-max" }), "OpenCode Go Qwen 3.8 Max");
+  assert.equal(displayNameFor({ sourceId: "anthropic/claude-fable-5-1" }), "Claude Fable 5.1");
+  assert.equal(displayNameFor({ sourceId: "anthropic/claude-opus-5-5" }), "Claude Opus 5.5");
+  assert.equal(displayNameFor({ sourceId: "anthropic/claude-opus-4-1-20250805" }), "Claude Opus 4.1 20250805");
 });
 
 test("replaces only bridge-managed user models", () => {

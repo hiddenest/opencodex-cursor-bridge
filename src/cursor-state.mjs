@@ -46,11 +46,25 @@ function displayWord(value) {
   return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
 }
 
+// Provider IDs may spell versions with hyphens ("claude-fable-5-1"). Join short
+// numeric runs into one version while keeping long numbers such as dates apart.
+function joinVersionSegments(words) {
+  return words.reduce((merged, word) => {
+    const previous = merged.at(-1);
+    if (/^\d{1,2}$/.test(word) && /^\d{1,2}(?:\.\d{1,2})*$/.test(previous ?? "")) {
+      merged[merged.length - 1] = `${previous}.${word}`;
+    } else {
+      merged.push(word);
+    }
+    return merged;
+  }, []);
+}
+
 export function displayNameFor(model) {
   const provider = model.provider || (model.sourceId.includes("/") ? model.sourceId.split("/", 1)[0] : "openai");
   const providerDisplayName = providerDisplayNames.get(provider)
     || provider.split(/[-_]/).map(displayWord).join(" ");
-  const displayName = model.sourceId.split("/").at(-1).split("-").map(displayWord).join(" ");
+  const displayName = joinVersionSegments(model.sourceId.split("/").at(-1).split("-")).map(displayWord).join(" ");
   return unprefixedProviders.has(provider) ? displayName : `${providerDisplayName} ${displayName}`;
 }
 
