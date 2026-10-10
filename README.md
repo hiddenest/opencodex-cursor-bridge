@@ -6,7 +6,7 @@
 Use your active [OpenCodex](https://github.com/lidge-jun/opencodex) models in Cursor through an authenticated HTTPS endpoint on your Mac.
 
 > [!WARNING]
-> The installer edits two private workbench files inside `Cursor.app`. This invalidates Cursor's vendor signature, so the bridge applies a local ad-hoc seal and removes the app's quarantine attribute after each patch to prevent macOS from reporting a corrupt installation. The bridge saves the original files under `~/.opencodex/cursor-bridge/cursor-app-backups`. Reinstall Cursor to restore a vendor-signed app.
+> The installer edits two private workbench files inside `Cursor.app`. This invalidates Cursor's vendor signature, so the bridge applies a local ad-hoc seal and removes the app's quarantine attribute after each patch to prevent macOS from reporting a corrupt installation. The seal keeps Cursor's team-based designated requirement so in-app updates still pass validation. The bridge saves the original files under `~/.opencodex/cursor-bridge/cursor-app-backups`. Reinstall Cursor to restore a vendor-signed app.
 
 ## Requirements
 
@@ -165,6 +165,7 @@ The bridge reads `~/.opencodex/service-api-token` when OpenCodex uses service au
 | Cloudflare returns 1016 | Run `cloudflared tunnel info ocx-cursor` and check the service. |
 | Models or controls are missing | Quit Cursor and run `ocx-cursor sync`. It repairs the foreground app patch before writing model metadata. |
 | A Cursor update removed the patch | Quit Cursor and run `ocx-cursor install`. |
+| Cursor updates fail with `code failed to satisfy specified code requirement(s)` | An ad-hoc seal from 1.0.8 or earlier replaced Cursor's designated requirement. Update the bridge, quit Cursor, and run `ocx-cursor install`. |
 
 Read the service logs:
 

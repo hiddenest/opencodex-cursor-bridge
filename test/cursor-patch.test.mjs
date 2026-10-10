@@ -138,57 +138,75 @@ test("rethrows recursive quarantine cleanup errors when root attribute listing f
   );
 });
 
-test("ad-hoc signs an invalid patched Cursor app before clearing quarantine", () => {
+const vendorAnchorRequirement = "anchor apple generic and certificate leaf[subject.OU] = VDXQ22DGB9";
+const vendorAppRequirement = `identifier "com.todesktop.230313mzl4w4u92" and ${vendorAnchorRequirement}`;
+
+function fakeCodesign({ valid = true, appRequirement, squirrelRequirement, bundleIdentifier = "com.todesktop.230313mzl4w4u92" } = {}) {
   const calls = [];
   let verificationAttempts = 0;
-  finalizeCursorAppPatch({
-    appPath: "/test/Cursor.app",
-    execFileSync(command, args, options) {
-      calls.push({ command, args, options });
-      if (command === "/usr/bin/codesign" && args[0] === "--verify" && verificationAttempts++ === 0) {
-        throw new Error("invalid signature");
-      }
-    },
-  });
-  assert.deepEqual(calls, [
-    {
-      command: "/usr/bin/codesign",
-      args: ["--verify", "--deep", "--strict", "/test/Cursor.app"],
-      options: { stdio: "ignore" },
-    },
-    {
-      command: "/usr/bin/codesign",
-      args: ["--force", "--sign", "-", "/test/Cursor.app"],
-      options: { stdio: "ignore" },
-    },
-    {
-      command: "/usr/bin/codesign",
-      args: ["--verify", "--deep", "--strict", "/test/Cursor.app"],
-      options: { stdio: "ignore" },
-    },
-    {
-      command: "/usr/bin/xattr",
-      args: ["-dr", "com.apple.quarantine", "/test/Cursor.app"],
-      options: { stdio: "ignore" },
-    },
+  const execFileSync = (command, args, options) => {
+    calls.push({ command, args });
+    if (command === "/usr/bin/codesign" && args[0] === "--verify" && !valid && verificationAttempts++ === 0) {
+      throw new Error("invalid signature");
+    }
+    if (command === "/usr/bin/codesign" && args[0] === "--display") {
+      assert.equal(options.encoding, "utf8");
+      const target = args.at(-1);
+      const requirement = target.endsWith("Squirrel.framework") ? squirrelRequirement : appRequirement;
+      if (!requirement) throw new Error("not signed");
+      return `designated => ${requirement}\n`;
+    }
+    if (command === "/usr/bin/plutil") return `${bundleIdentifier}\n`;
+    return "";
+  };
+  return { calls, execFileSync };
+}
+
+const signCalls = (calls) => calls.filter(({ args }) => args[0] === "--force");
+
+test("keeps Cursor's vendor requirement when ad-hoc signing a patched app", () => {
+  const fake = fakeCodesign({ valid: false, appRequirement: vendorAppRequirement });
+  finalizeCursorAppPatch({ appPath: "/test/Cursor.app", execFileSync: fake.execFileSync });
+  assert.deepEqual(signCalls(fake.calls), [{
+    command: "/usr/bin/codesign",
+    args: ["--force", "--sign", "-", "--requirements", `=designated => ${vendorAppRequirement}`, "/test/Cursor.app"],
+  }]);
+  assert.deepEqual(fake.calls.slice(-2), [
+    { command: "/usr/bin/codesign", args: ["--verify", "--deep", "--strict", "/test/Cursor.app"] },
+    { command: "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "/test/Cursor.app"] },
   ]);
 });
 
-test("keeps a valid Cursor signature when finalizing an already-patched app", () => {
-  const calls = [];
-  finalizeCursorAppPatch({
-    appPath: "/test/Cursor.app",
-    execFileSync(command, args, options) {
-      calls.push({ command, args, options });
-    },
+test("restores the vendor requirement after an earlier cdhash-only seal", () => {
+  const fake = fakeCodesign({
+    appRequirement: 'cdhash H"98a20ab8747f058b8e2ecb3f9c1a8ae69343a656"',
+    squirrelRequirement: `identifier "com.github.Squirrel" and ${vendorAnchorRequirement}`,
   });
-  assert.deepEqual(calls, [
-    {
-      command: "/usr/bin/codesign",
-      args: ["--verify", "--deep", "--strict", "/test/Cursor.app"],
-      options: { stdio: "ignore" },
-    },
-  ]);
+  finalizeCursorAppPatch({ appPath: "/test/Cursor.app", execFileSync: fake.execFileSync });
+  assert.deepEqual(signCalls(fake.calls), [{
+    command: "/usr/bin/codesign",
+    args: [
+      "--force", "--sign", "-", "--requirements",
+      `=designated => identifier "com.todesktop.230313mzl4w4u92" and (${vendorAnchorRequirement})`,
+      "/test/Cursor.app",
+    ],
+  }]);
+});
+
+test("falls back to a plain ad-hoc seal when no vendor requirement is available", () => {
+  const fake = fakeCodesign({ valid: false });
+  finalizeCursorAppPatch({ appPath: "/test/Cursor.app", execFileSync: fake.execFileSync });
+  assert.deepEqual(signCalls(fake.calls), [{
+    command: "/usr/bin/codesign",
+    args: ["--force", "--sign", "-", "/test/Cursor.app"],
+  }]);
+});
+
+test("keeps a valid Cursor signature that already carries the vendor requirement", () => {
+  const fake = fakeCodesign({ appRequirement: vendorAppRequirement });
+  finalizeCursorAppPatch({ appPath: "/test/Cursor.app", execFileSync: fake.execFileSync });
+  assert.deepEqual(signCalls(fake.calls), []);
+  assert.equal(fake.calls.some(({ command }) => command === "/usr/bin/xattr"), false);
 });
 
 test("adds display names, Fast, and advertised reasoning efforts to the local runtime", () => {

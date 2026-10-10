@@ -113,6 +113,46 @@ export function clearCursorAppQuarantine(options = {}) {
   }
 }
 
+const designatedRequirementPrefix = "designated => ";
+const leadingIdentifierRequirement = /^identifier\s+"[^"]*"\s+and\s+/;
+
+function readDesignatedRequirement(execute, path) {
+  try {
+    const output = execute("/usr/bin/codesign", ["--display", "--requirements", "-", path], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const line = String(output).split(/\r?\n/).find((entry) => entry.startsWith(designatedRequirementPrefix));
+    return line?.slice(designatedRequirementPrefix.length).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isVendorRequirement(requirement) {
+  return Boolean(requirement?.includes("anchor apple generic"));
+}
+
+// An earlier plain ad-hoc seal replaced the app's vendor requirement with a
+// cdhash. Nested code keeps its vendor signature, so rebuild the requirement
+// from Squirrel.framework and the app's bundle identifier.
+function deriveVendorRequirement(execute, appPath) {
+  const nested = readDesignatedRequirement(execute, join(appPath, "Contents", "Frameworks", "Squirrel.framework"));
+  if (!isVendorRequirement(nested)) return undefined;
+  let identifier;
+  try {
+    identifier = String(execute(
+      "/usr/bin/plutil",
+      ["-extract", "CFBundleIdentifier", "raw", "-o", "-", join(appPath, "Contents", "Info.plist")],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    )).trim();
+  } catch {
+    return undefined;
+  }
+  if (!/^[\w.-]+$/.test(identifier)) return undefined;
+  return `identifier "${identifier}" and (${nested.replace(leadingIdentifierRequirement, "")})`;
+}
+
 export function finalizeCursorAppPatch(options = {}) {
   const execute = options.execFileSync || execFileSync;
   const appPath = options.appPath || cursorAppPath;
@@ -124,8 +164,16 @@ export function finalizeCursorAppPatch(options = {}) {
   } catch {
     // A rewritten bundle invalidates Cursor's signature and needs a fresh ad-hoc signature.
   }
-  if (signatureIsValid) return;
-  execute("/usr/bin/codesign", ["--force", "--sign", "-", appPath], { stdio: "ignore" });
+  // Squirrel.Mac installs an update only when it satisfies the running app's
+  // designated requirement. Keep Cursor's team-based requirement in the ad-hoc
+  // seal so vendor-signed updates still pass validation.
+  const current = readDesignatedRequirement(execute, appPath);
+  const requirement = isVendorRequirement(current) ? current : deriveVendorRequirement(execute, appPath);
+  // Re-seal a valid app only to restore a requirement that an earlier seal dropped.
+  if (signatureIsValid && (!requirement || requirement === current)) return;
+  const signArgs = ["--force", "--sign", "-"];
+  if (requirement) signArgs.push("--requirements", `=${designatedRequirementPrefix}${requirement}`);
+  execute("/usr/bin/codesign", [...signArgs, appPath], { stdio: "ignore" });
   execute("/usr/bin/codesign", verifyArgs, { stdio: "ignore" });
   clearCursorAppQuarantine({ ...options, appPath, execFileSync: execute });
 }
