@@ -43,7 +43,8 @@ export function isCursorModelMetadataBundle(file) {
   return file === cursorWorkbenchFile || file === cursorGlassWorkbenchFile;
 }
 
-const catalogNormalization = /(?<normalization>\b(?<catalog>[A-Za-z_$][\w$]*)=\k<catalog>\.map\((?<item>[A-Za-z_$][\w$]*)=>(?<plain>[A-Za-z_$][\w$]*)\(\k<item>\)\)),(?=(?<batch>[A-Za-z_$][\w$]*)\(\(\)=>\{this\._reactiveStorageService\.setApplicationUserPersistentStorage\("availableDefaultModels2",\k<catalog>\))/g;
+// Cursor 3.24 persists the catalog through persistAvailableDefaultModels().
+const catalogNormalization = /(?<normalization>\b(?<catalog>[A-Za-z_$][\w$]*)=\k<catalog>\.map\((?<item>[A-Za-z_$][\w$]*)=>(?<plain>[A-Za-z_$][\w$]*)\(\k<item>\)\)),(?=(?<batch>[A-Za-z_$][\w$]*)\(\(\)=>\{(?:this\._reactiveStorageService\.setApplicationUserPersistentStorage\("availableDefaultModels2",\k<catalog>\)|this\.persistAvailableDefaultModels\(\k<catalog>\)))/g;
 const previousCatalogInjection = /\/\*ocx-cursor-model-metadata(?:-v[2-5])?\*\/(?<catalog>[A-Za-z_$][\w$]*)=[\s\S]*?,(?=(?<batch>[A-Za-z_$][\w$]*)\(\(\)=>\{this\._reactiveStorageService\.setApplicationUserPersistentStorage\("availableDefaultModels2",\k<catalog>\))/g;
 const byokModelRouting = /function (?<functionName>[A-Za-z_$][\w$]*)\((?<model>[A-Za-z_$][\w$]*),(?<settings>[A-Za-z_$][\w$]*)\)\{return (?<isClaude>[A-Za-z_$][\w$]*)\(\k<model>\)\?\k<settings>\.useClaudeKey\?"anthropic":void 0:(?<isGemini>[A-Za-z_$][\w$]*)\(\k<model>\)\?\k<settings>\.useGoogleKey\?"google":void 0:\k<settings>\.useOpenAIKey\?"openai":void 0\}/g;
 const explicitSubagentModelFilter = /function (?<functionName>[A-Za-z_$][\w$]*)\((?<model>[A-Za-z_$][\w$]*),(?<isUserAdded>[A-Za-z_$][\w$]*),(?<storage>[A-Za-z_$][\w$]*)\)\{return \k<isUserAdded>===!0\?!0:(?<hasProviderOverride>[A-Za-z_$][\w$]*)\(\k<storage>\)\|\|(?<usesByok>[A-Za-z_$][\w$]*)\(\k<model>,\k<storage>\)\}(?=function [A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*\)\{const\{modelDetails:)/g;
@@ -54,10 +55,11 @@ const explicitSubagentSelectionCall = /getSelectedSubagentModelSelections\((?<mo
 const agentModelDetailsType = /(?<type>[A-Za-z_$][\w$]*)=[A-Za-z_$][\w$]*\.makeMessageType\("agent\.v1\.ModelDetails"/g;
 const selectedSubagentLegacyDetails = /selectedSubagentModelDetails:(?<options>[A-Za-z_$][\w$]*)\.selectedSubagentModelsLegacy/g;
 const legacySelectedSubagentDetailsInjection = /selectedSubagentModelDetails:\/\*ocx-cursor-subagent-legacy-details-v1\*\/(?<options>[A-Za-z_$][\w$]*)\.selectedSubagentModelsLegacy\?\.length\?[\s\S]*?credentials:ocxCursorModel\.credentials\}\)\)/g;
-const agentCustomSystemPrompt = /customSystemPrompt:(?<options>[A-Za-z_$][\w$]*)\.customSystemPrompt(?=,harness:)/g;
-const agentRequestAction = /(?<prefix>conversationState:[A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*\),action:)(?<action>[A-Za-z_$][\w$]*)(?=,modelDetails:)/g;
+const agentCustomSystemPrompt = /customSystemPrompt:(?<options>[A-Za-z_$][\w$]*)\.customSystemPrompt(?=,(?:systemPromptSpec:\k<options>\.systemPromptSpec,)?harness:)/g;
+// Cursor 3.24 builds the request with "new Request({conversationState:t,action:attempt.action,...})".
+const agentRequestAction = /(?<prefix>(?:conversationState:[A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*\)|new [A-Za-z_$][\w$]*\(\{conversationState:[A-Za-z_$][\w$]*),action:)(?<action>[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)(?=,modelDetails:)/g;
 const legacySubagentPromptRouting = /customSystemPrompt:\(\(\)=>\{\/\*ocx-cursor-subagent-prompt-routing-v1\*\/const ocxCursorModelIds=\((?<options>[A-Za-z_$][\w$]*)\.selectedSubagentModels[\s\S]*?\}\)\(\)(?=,harness:)/g;
-const legacySubagentRequestRouting = /(?<prefix>conversationState:[A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*\),action:)\(\(\)=>\{\/\*ocx-cursor-subagent-prompt-routing-v2\*\/[\s\S]*?return (?<action>[A-Za-z_$][\w$]*)\}\)\(\)(?=,modelDetails:)/g;
+const legacySubagentRequestRouting = /(?<prefix>(?:conversationState:[A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*\)|new [A-Za-z_$][\w$]*\(\{conversationState:[A-Za-z_$][\w$]*),action:)\(\(\)=>\{\/\*ocx-cursor-subagent-prompt-routing-v2\*\/[\s\S]*?return (?<action>[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)\}\)\(\)(?=,modelDetails:)/g;
 const createOrResumeSubagentStart = /async createOrResumeSubagent\((?<input>[A-Za-z_$][\w$]*)\)\{/g;
 const legacySubagentExecutionRouting = /(?<start>async createOrResumeSubagent\((?<input>[A-Za-z_$][\w$]*)\)\{)\/\*ocx-cursor-subagent-execution-routing-v[1-4]\*\/[\s\S]*?(?=let [A-Za-z_$][\w$]*,[A-Za-z_$][\w$]*=\k<input>\.resumeAgentId;)/g;
 const currentSubagentExecutionRouting = /(?<start>async createOrResumeSubagent\((?<input>[A-Za-z_$][\w$]*)\)\{)\/\*ocx-cursor-subagent-execution-routing-v5\*\/[\s\S]*?(?=const [A-Za-z_$][\w$]*=\{mode:)/g;
@@ -68,7 +70,9 @@ const appendSubagentComposer = /(?<declaration>const (?<result>[A-Za-z_$][\w$]*)
 const runSubagentWithHandle = /async runSubagentWithHandle\((?<input>[A-Za-z_$][\w$]*),(?<handle>[A-Za-z_$][\w$]*)\)\{return this\._runSubagent\(\k<input>,\k<handle>\)\}/g;
 const runSubagentModelConfigFixup = /(?<fixed>[A-Za-z_$][\w$]*)=\(typeof this\._modelConfigService\.fixupModelConfigForCurrentFlag=="function"\?this\._modelConfigService\.fixupModelConfigForCurrentFlag\(\{modelName:(?<resolved>[A-Za-z_$][\w$]*),maxMode:(?<maxMode>[A-Za-z_$][\w$]*)\}\):void 0\)\?\.selectedModels\?\?\[\],(?<stored>[A-Za-z_$][\w$]*)=(?<config>[A-Za-z_$][\w$]*)\?\.selectedModels\?\?\[\]/g;
 const requestedModelCredentials = /(?<prefix>new [A-Za-z_$][\w$]*\(\{modelId:(?<model>[A-Za-z_$][\w$]*),maxMode:(?<details>[A-Za-z_$][\w$]*)\.maxMode,parameters:[\s\S]*?,credentials:)this\.convertModelDetailsToCredentials\(\k<details>\)(?<suffix>\}\))(?=\}convertModelDetailsToCredentials)/g;
-const subagentModelDisplaySelection = /function (?<functionName>[A-Za-z_$][\w$]*)\((?<input>[A-Za-z_$][\w$]*)\)\{return \k<input>\.resumeTargetComposerId!==void 0\?\k<input>\.subagentModelName:\k<input>\.bestOfNModelName!==void 0\?\k<input>\.bestOfNModelName:\k<input>\.taskParamModelName\?\?\k<input>\.subagentModelName\}/g;
+// Cursor 3.24 builds the requested model in a helper outside the agent class.
+const delegatedRequestedModel = /buildRequestedModel\((?<details>[A-Za-z_$][\w$]*),(?<composer>[A-Za-z_$][\w$]*)\)\{return (?<call>[A-Za-z_$][\w$]*\(\{[^{}]*\},\k<details>,\k<composer>\))\}(?=convertModelDetailsToCredentials\()/g;
+const subagentModelDisplaySelection = /function (?<functionName>[A-Za-z_$][\w$]*)\((?<input>[A-Za-z_$][\w$]*)\)\{return \k<input>\.(?<resumeField>resumeTarget(?:Composer|Subagent)Id)!==void 0\?\k<input>\.subagentModelName:\k<input>\.bestOfNModelName!==void 0\?\k<input>\.bestOfNModelName:\k<input>\.taskParamModelName\?\?\k<input>\.subagentModelName\}/g;
 const legacySubagentModelDisplaySelection = /function (?<functionName>[A-Za-z_$][\w$]*)\((?<input>[A-Za-z_$][\w$]*)\)\{\/\*ocx-cursor-subagent-model-display-v1\*\/return \k<input>\.subagentModelName\?\.startsWith\("opencodex\/"\)\?\k<input>\.subagentModelName:\k<input>\.resumeTargetComposerId!==void 0\?\k<input>\.subagentModelName:\k<input>\.bestOfNModelName!==void 0\?\k<input>\.bestOfNModelName:\k<input>\.taskParamModelName\?\?\k<input>\.subagentModelName\}/g;
 const subagentTaskArgsContext = /(?<args>[A-Za-z_$][\w$]*)=(?<argsExtractor>[A-Za-z_$][\w$]*)\((?<bubble>[A-Za-z_$][\w$]*)\),(?<resume>[A-Za-z_$][\w$]*)=(?<resumeExtractor>[A-Za-z_$][\w$]*)\(\k<args>\),[\s\S]{0,400}?(?<taskModel>[A-Za-z_$][\w$]*)=\k<resume>===void 0\?\k<bubble>\.params\?\.model:void 0/g;
 const directSubagentTaskArgsContext = /subagentTypeName:(?<bubble>[A-Za-z_$][\w$]*)\.params\?\.name[\s\S]{0,2500}?taskParamModelName:(?<taskModel>[A-Za-z_$][\w$]*)\}\);return/g;
@@ -407,9 +411,17 @@ export function patchCursorSubagentRunRoutingSource(source) {
 
 export function patchCursorSubagentRuntimeCredentialsSource(source) {
   if (source.includes(cursorSubagentRuntimeCredentialsPatchMarker)) return { status: "already-patched", source };
+  const opencodexCredentials = "this.convertModelDetailsToCredentials({apiKey:this.cursorAuthenticationService.openAIKey()??void 0,openaiApiBaseUrl:this.reactiveStorageService.applicationUserPersistentStorage.openAIBaseUrl})";
+  if ([...source.matchAll(requestedModelCredentials)].length === 0) {
+    const patched = replaceSingleMatch(source, delegatedRequestedModel, (match) => {
+      const { details, composer, call } = match.groups;
+      return `buildRequestedModel(${details},${composer}){${cursorSubagentRuntimeCredentialsPatchMarker}const ocxCursorRequestedModel=${call};return ocxCursorRequestedModel.modelId?.startsWith("opencodex/")&&(ocxCursorRequestedModel.credentials=${opencodexCredentials}),ocxCursorRequestedModel}`;
+    }, "subagent runtime credentials");
+    return { status: "patched", source: patched };
+  }
   const patched = replaceSingleMatch(source, requestedModelCredentials, (match) => {
     const { prefix, model, details, suffix } = match.groups;
-    return `${prefix}${cursorSubagentRuntimeCredentialsPatchMarker}${model}.startsWith("opencodex/")?this.convertModelDetailsToCredentials({apiKey:this.cursorAuthenticationService.openAIKey()??void 0,openaiApiBaseUrl:this.reactiveStorageService.applicationUserPersistentStorage.openAIBaseUrl}):this.convertModelDetailsToCredentials(${details})${suffix}`;
+    return `${prefix}${cursorSubagentRuntimeCredentialsPatchMarker}${model}.startsWith("opencodex/")?${opencodexCredentials}:this.convertModelDetailsToCredentials(${details})${suffix}`;
   }, "subagent runtime credentials");
   return { status: "patched", source: patched };
 }
@@ -424,8 +436,8 @@ export function patchCursorSubagentModelDisplaySource(source) {
     }, "legacy subagent model display selector");
   }
   const patched = replaceSingleMatch(restored, subagentModelDisplaySelection, (match) => {
-    const { functionName, input } = match.groups;
-    return `function ${functionName}(${input}){${cursorSubagentModelDisplayPatchMarker}return ${input}.resumeTargetComposerId!==void 0?${input}.subagentModelName:${input}.bestOfNModelName!==void 0?${input}.bestOfNModelName:${input}.taskParamModelName?.startsWith("opencodex/")?${input}.taskParamModelName:${input}.taskParamModelName?.startsWith("composer-")&&${input}.subagentModelName?.startsWith("opencodex/")?${input}.subagentModelName:${input}.taskParamModelName??${input}.subagentModelName}`;
+    const { functionName, input, resumeField } = match.groups;
+    return `function ${functionName}(${input}){${cursorSubagentModelDisplayPatchMarker}return ${input}.${resumeField}!==void 0?${input}.subagentModelName:${input}.bestOfNModelName!==void 0?${input}.bestOfNModelName:${input}.taskParamModelName?.startsWith("opencodex/")?${input}.taskParamModelName:${input}.taskParamModelName?.startsWith("composer-")&&${input}.subagentModelName?.startsWith("opencodex/")?${input}.subagentModelName:${input}.taskParamModelName??${input}.subagentModelName}`;
   }, "subagent model display selector");
   return { status: "patched", source: patched };
 }

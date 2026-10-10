@@ -753,6 +753,90 @@ test("restores stored OpenCodex models missing from Cursor's refreshed catalog",
   assert.equal(result.some(({ name }) => name === "custom/unmanaged"), false);
 });
 
+const cursor324ModelDisplaySource = 'function displayModel(e){return e.resumeTargetSubagentId!==void 0?e.subagentModelName:e.bestOfNModelName!==void 0?e.bestOfNModelName:e.taskParamModelName??e.subagentModelName}';
+const cursor324AgentRequestSource = 'class VVs{constructor(e){Object.assign(this,e)}}function request(u,n,t){const pe={action:n},Te=pe;return new VVs({conversationState:t,action:Te.action,modelDetails:u.modelDetails,requestedModel:u.requestedModel,customSystemPrompt:u.customSystemPrompt,systemPromptSpec:u.systemPromptSpec,harness:u.harness})}function executeTurn(e){return e}function run(l,h,v){return executeTurn({conversationState:l,action:h,modelDetails:v})}';
+const cursor324RequestedModelSource = 'function Hfh(e){return e.apiKey?{apiKey:e.apiKey,baseUrl:e.openaiApiBaseUrl}:{}}function jSo(e,t,n){return{modelId:n.data.modelConfig.selectedModels[0].modelId,maxMode:t.maxMode,credentials:Hfh(t)}}class AgentRuntime{buildRequestedModel(e,t){return jSo({composerDataService:this.composerDataService,modelConfigService:this.modelConfigService,logService:this.logService},e,t)}convertModelDetailsToCredentials(e){return Hfh(e)}}';
+
+test("restores OpenCodex models when Cursor 3.24 persists its catalog through a helper", () => {
+  const executableSource = `function refresh(models){const plain=value=>value,batch=callback=>callback();let catalog=models;catalog=catalog.map(item=>plain(item)),batch(()=>{this.persistAvailableDefaultModels(catalog)});return catalog}${byokSource}${subagentSource}${agentRequestSource}${subagentExecutionSource}${subagentModelDisplaySource}${subagentTaskCardSource}${subagentLoaderSource}`;
+  const patched = patchCursorWorkbenchSource(executableSource);
+  const refresh = new Function(`${patched.source};return refresh`)();
+  let persisted;
+  const context = {
+    _reactiveStorageService: {
+      applicationUserPersistentStorage: {
+        availableDefaultModels2: [{ name: "opencodex/gpt-6.1-sol", clientDisplayName: "GPT 6.1 Sol" }],
+      },
+    },
+    persistAvailableDefaultModels(value) {
+      persisted = value;
+    },
+  };
+
+  const result = refresh.call(context, [{ name: "cursor/native" }]);
+  assert.deepEqual(result.map(({ name }) => name), ["cursor/native", "opencodex/gpt-6.1-sol"]);
+  assert.equal(result[1].clientDisplayName, "GPT 6.1 Sol");
+  assert.deepEqual(persisted, result);
+  assert.equal(patchCursorWorkbenchSource(patched.source).status, "already-patched");
+});
+
+test("routes OpenCodex prompts in the Cursor 3.24 request builder only", () => {
+  const result = patchCursorSubagentPromptRoutingSource(cursor324AgentRequestSource);
+  assert.equal(result.status, "patched");
+  assert.match(result.source, /executeTurn\(\{conversationState:l,action:h,modelDetails:v\}\)/);
+  const request = new Function(`${result.source};return request`)();
+  const userMessage = { text: "use opencodex/claude-fable-5-1", richText: "use opencodex/claude-fable-5-1" };
+  const action = { action: { case: "userMessageAction", value: { userMessage } } };
+  const routed = request({
+    customSystemPrompt: "Existing instructions",
+    systemPromptSpec: "spec",
+    selectedSubagentModels: [{ modelId: "opencodex/claude-fable-5-1" }],
+  }, action, {});
+
+  assert.equal(routed.action, action);
+  assert.equal(routed.systemPromptSpec, "spec");
+  assert.match(userMessage.text, /^use composer-2\.5\n\nLocal routing requirement: .*<ocx-subagent-model>opencodex\/claude-fable-5-1<\/ocx-subagent-model>/);
+  assert.equal(patchCursorSubagentPromptRoutingSource(result.source).status, "already-patched");
+});
+
+test("uses bridge credentials when Cursor 3.24 builds requested models in a helper", () => {
+  const result = patchCursorSubagentRuntimeCredentialsSource(cursor324RequestedModelSource);
+  assert.equal(result.status, "patched");
+  const AgentRuntime = new Function(`${result.source};return AgentRuntime`)();
+  const runtime = new AgentRuntime();
+  runtime.cursorAuthenticationService = { openAIKey: () => "bridge-secret" };
+  runtime.reactiveStorageService = { applicationUserPersistentStorage: { openAIBaseUrl: "http://127.0.0.1:10101/v1" } };
+
+  const custom = runtime.buildRequestedModel(
+    { maxMode: true },
+    { data: { modelConfig: { selectedModels: [{ modelId: "opencodex/claude-fable-5-1" }] } } },
+  );
+  assert.deepEqual(custom.credentials, { apiKey: "bridge-secret", baseUrl: "http://127.0.0.1:10101/v1" });
+
+  const native = runtime.buildRequestedModel(
+    { maxMode: true, apiKey: "native-secret", openaiApiBaseUrl: "https://native.invalid/v1" },
+    { data: { modelConfig: { selectedModels: [{ modelId: "composer-2.5" }] } } },
+  );
+  assert.deepEqual(native.credentials, { apiKey: "native-secret", baseUrl: "https://native.invalid/v1" });
+  assert.equal(patchCursorSubagentRuntimeCredentialsSource(result.source).status, "already-patched");
+});
+
+test("shows routed OpenCodex models with Cursor 3.24 resume targets", () => {
+  const result = patchCursorSubagentModelDisplaySource(cursor324ModelDisplaySource);
+  assert.equal(result.status, "patched");
+  const displayModel = new Function(`${result.source};return displayModel`)();
+  assert.equal(displayModel({
+    taskParamModelName: "composer-2.5",
+    subagentModelName: "opencodex/claude-fable-5-1",
+  }), "opencodex/claude-fable-5-1");
+  assert.equal(displayModel({
+    resumeTargetSubagentId: "child-1",
+    taskParamModelName: "composer-2.5",
+    subagentModelName: "opencodex/gpt-6.1-sol",
+  }), "opencodex/gpt-6.1-sol");
+  assert.equal(patchCursorSubagentModelDisplaySource(result.source).status, "already-patched");
+});
+
 test("upgrades the legacy metadata hook", () => {
   const legacy = source.replace(
     'c=c.map(z=>XTt(z)),',
